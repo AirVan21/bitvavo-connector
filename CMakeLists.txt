@@ -9,11 +9,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Find Boost library
 find_package(Boost REQUIRED)
 
-# Add the executable target
-add_executable(BitvavoConnector main.cpp)
+# Find OpenSSL library
+find_package(OpenSSL REQUIRED)
 
-# Include Boost headers
-if(Boost_FOUND)
-    target_include_directories(BitvavoConnector PRIVATE ${Boost_INCLUDE_DIRS})
-    target_link_libraries(BitvavoConnector PRIVATE ${Boost_LIBRARIES})
+# Add the executable target
+add_executable(BitvavoConnector
+    main.cpp
+    network/WssWorker.cpp
+)
+
+# Include Boost and OpenSSL headers
+if(Boost_FOUND AND OpenSSL_FOUND)
+    target_include_directories(BitvavoConnector PRIVATE ${Boost_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(BitvavoConnector PRIVATE ${Boost_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto)
 endif()
