@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     git \
     python3 \
     python3-pip \
+    libboost-all-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,7 +24,9 @@ RUN pip3 install conan==1.64.1
 # Set up Conan configuration
 RUN conan profile new default --detect && \
     conan profile update settings.compiler.cppstd=20 default && \
-    conan profile update settings.arch=x86 default
+    conan profile update settings.arch=armv8 default && \
+    conan profile update settings.arch_build=armv8 default && \
+    conan profile update settings.compiler=gcc default
 
 # Set the working directory
 WORKDIR /bitvavo-connector
