@@ -19,22 +19,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Conan
-RUN pip3 install conan
+RUN pip3 install conan==1.64.1
 
 # Set up Conan configuration
-RUN conan profile new default --detect && conan profile update settings.compiler.libcxx=libstdc++11 default
+RUN conan profile new default --detect && \
+    conan profile update settings.compiler.cppstd=20 default && \
+    conan profile update settings.arch=x86 default
 
 # Set the working directory
 WORKDIR /bitvavo-connector
-
-# Create a directory for dependencies and build
-RUN mkdir -p build && cd build
-
-# Install dependencies using Conan
-RUN conan install .. --build=missing
-
-# Build the project
-#RUN cmake .. && make
 
 # Set the default command to run the built application
 CMD ["bash"]
