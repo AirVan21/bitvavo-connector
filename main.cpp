@@ -33,7 +33,7 @@ int main() {
     
     // Example: Connect to a WebSocket server
     // Replace with your actual WebSocket server details
-    ConnectionSettings settings("echo.websocket.org", "443", "/");  // Example echo server
+    ConnectionSettings settings("ws.bitvavo.com", "443", "/v2");  // Example echo server
     
     std::cout << "Connecting to " << settings.host << ":" << settings.port << settings.path << std::endl;
     
@@ -43,27 +43,23 @@ int main() {
     // Wait for connection
     if (connect_future.get()) {
         std::cout << "Connection established!" << std::endl;
-        
+
         // Start listening for incoming messages
         wss_worker.StartListening();
-        
-        // Send a test message
-        std::string test_message = "Hello, WebSocket!";
-        std::cout << "Sending message: " << test_message << std::endl;
-        
+
+        // Send message
+        std::string test_message = "{\n"
+                                   "  \"action\": \"getTickerPrice\","
+                                   "  \"requestId\": 1,"
+                                   "  \"market\": \"BTC-EUR\""
+                                   "}";
         auto send_future = wss_worker.Send(test_message);
+        
         if (send_future.get()) {
             std::cout << "Message sent successfully!" << std::endl;
         } else {
             std::cout << "Failed to send message." << std::endl;
         }
-        
-        // Keep the connection alive for a few seconds to receive the echo
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-        
-        // Disconnect
-        wss_worker.Disconnect();
-        std::cout << "Disconnected from WebSocket server." << std::endl;
     } else {
         std::cout << "Failed to connect to WebSocket server." << std::endl;
     }

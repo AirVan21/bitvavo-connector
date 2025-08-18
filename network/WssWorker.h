@@ -31,7 +31,6 @@ namespace connectors {
         // Connection management
         std::future<bool> Connect(const ConnectionSettings& settings);
         void Disconnect();
-        bool IsConnected() const;
 
         // Data transmission
         std::future<bool> Send(const std::string& message);
@@ -50,8 +49,8 @@ namespace connectors {
         void ReportError(const std::string& error_message);
 
         boost::asio::io_context& io_context_;
-        std::unique_ptr<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>> ws_ptr_;
         std::shared_ptr<boost::asio::ssl::context> ssl_context_;
+        std::unique_ptr<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>> ws_ptr_;
         
         // Callbacks
         MessageCallback message_callback_;

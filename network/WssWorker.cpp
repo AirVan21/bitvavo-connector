@@ -6,11 +6,9 @@ namespace connectors {
 
 WssWorker::WssWorker(boost::asio::io_context& io_context)
     : io_context_(io_context)
+    , ssl_context_(std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv12_client))
     , connected_(false)
-    , listening_(false) {
-    // Create SSL context
-    ssl_context_ = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv12_client);
-    
+    , listening_(false) {    
     // Create the WebSocket stream with SSL
     ws_ptr_ = std::make_unique<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>>(
         io_context, *ssl_context_);
@@ -84,10 +82,6 @@ void WssWorker::Disconnect() {
             ReportError("Disconnect error: " + std::string(e.what()));
         }
     }
-}
-
-bool WssWorker::IsConnected() const {
-    return connected_;
 }
 
 std::future<bool> WssWorker::Send(const std::string& message) {
