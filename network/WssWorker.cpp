@@ -126,7 +126,8 @@ void WssWorker::StartListening() {
         read_buffer_,
         [this](const boost::system::error_code& ec, std::size_t bytes_transferred) {
             HandleRead(ec, bytes_transferred);
-        });
+        }
+    );
 }
 
 void WssWorker::StopListening() {

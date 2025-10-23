@@ -18,8 +18,7 @@ namespace connectors {
         std::string path = "/";
     };
 
-    class WssWorker {
-    public:
+    struct WssWorker {
         // Callback types
         using MessageCallback = std::function<void(const std::string&)>;
         using ErrorCallback = std::function<void(const std::string&)>;
@@ -27,6 +26,10 @@ namespace connectors {
 
         WssWorker(boost::asio::io_context& io_context);
         ~WssWorker();
+
+        // Delete copy constructor and copy assignment operator
+        WssWorker(const WssWorker&) = delete;
+        WssWorker& operator=(const WssWorker&) = delete;
 
         // Connection management
         std::future<bool> Connect(const ConnectionSettings& settings);
