@@ -18,13 +18,14 @@ namespace connectors {
         std::string path = "/";
     };
 
-    struct WssWorker {
-        // Callback types
-        using MessageCallback = std::function<void(const std::string&)>;
-        using ErrorCallback = std::function<void(const std::string&)>;
-        using ConnectionCallback = std::function<void(bool)>;
+    struct Callbacks {
+        std::function<void(const std::string&)> on_message;
+        std::function<void(const std::string&)> on_error;
+        std::function<void(bool)> on_connection;
+    };
 
-        WssWorker(boost::asio::io_context& io_context);
+    struct WssWorker {
+        WssWorker(boost::asio::io_context& io_context, Callbacks callbacks = {});
         ~WssWorker();
 
         // Delete copy constructor and copy assignment operator
@@ -38,11 +39,6 @@ namespace connectors {
         // Data transmission
         std::future<bool> Send(const std::string& message);
 
-        // Callback setters
-        void SetMessageCallback(MessageCallback callback);
-        void SetErrorCallback(ErrorCallback callback);
-        void SetConnectionCallback(ConnectionCallback callback);
-
         // Start/stop listening for incoming messages
         void StartListening();
         void StopListening();
@@ -52,13 +48,11 @@ namespace connectors {
         void ReportError(const std::string& error_message);
 
         boost::asio::io_context& io_context_;
-        std::shared_ptr<boost::asio::ssl::context> ssl_context_;
+        boost::asio::ssl::context ssl_context_;
         std::unique_ptr<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>> ws_ptr_;
         
         // Callbacks
-        MessageCallback message_callback_;
-        ErrorCallback error_callback_;
-        ConnectionCallback connection_callback_;
+        Callbacks callbacks_;
 
         // State
         ConnectionSettings connection_settings_;

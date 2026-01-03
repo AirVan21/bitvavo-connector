@@ -4,15 +4,15 @@
 
 namespace connectors {
 
-WssWorker::WssWorker(boost::asio::io_context& io_context)
+WssWorker::WssWorker(boost::asio::io_context& io_context, Callbacks callbacks)
     : io_context_(io_context)
-    , ssl_context_(std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv12_client))
+    , ssl_context_(boost::asio::ssl::context::tlsv12_client)
+    , ws_ptr_(std::make_unique<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>>(
+        io_context, ssl_context_))
+    , callbacks_(std::move(callbacks))
     , connected_(false)
-    , listening_(false) {    
-    // Create the WebSocket stream with SSL
-    ws_ptr_ = std::make_unique<boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>>(
-        io_context, *ssl_context_);
-}
+    , listening_(false) 
+{}
 
 WssWorker::~WssWorker() {
     Disconnect();
@@ -53,16 +53,16 @@ std::future<bool> WssWorker::Connect(const ConnectionSettings& settings) {
             ws_ptr_->handshake(connection_settings_.host, connection_settings_.path);
 
             connected_ = true;
-            if (connection_callback_) {
-                connection_callback_(true);
+            if (callbacks_.on_connection) {
+                callbacks_.on_connection(true);
             }
             
             return true;
         } catch (const std::exception& e) {
             ReportError("Connection failed: " + std::string(e.what()));
             connected_ = false;
-            if (connection_callback_) {
-                connection_callback_(false);
+            if (callbacks_.on_connection) {
+                callbacks_.on_connection(false);
             }
             return false;
         }
@@ -75,8 +75,8 @@ void WssWorker::Disconnect() {
             StopListening();
             ws_ptr_->close(boost::beast::websocket::close_code::normal);
             connected_ = false;
-            if (connection_callback_) {
-                connection_callback_(false);
+            if (callbacks_.on_connection) {
+                callbacks_.on_connection(false);
             }
         } catch (const std::exception& e) {
             ReportError("Disconnect error: " + std::string(e.what()));
@@ -99,18 +99,6 @@ std::future<bool> WssWorker::Send(const std::string& message) {
             return false;
         }
     });
-}
-
-void WssWorker::SetMessageCallback(MessageCallback callback) {
-    message_callback_ = callback;
-}
-
-void WssWorker::SetErrorCallback(ErrorCallback callback) {
-    error_callback_ = callback;
-}
-
-void WssWorker::SetConnectionCallback(ConnectionCallback callback) {
-    connection_callback_ = callback;
 }
 
 void WssWorker::StartListening() {
@@ -140,24 +128,24 @@ void WssWorker::HandleRead(const boost::system::error_code& ec, std::size_t byte
             // Normal closure
             connected_ = false;
             listening_ = false;
-            if (connection_callback_) {
-                connection_callback_(false);
+            if (callbacks_.on_connection) {
+                callbacks_.on_connection(false);
             }
         } else {
             ReportError("Read error: " + ec.message());
             connected_ = false;
             listening_ = false;
-            if (connection_callback_) {
-                connection_callback_(false);
+            if (callbacks_.on_connection) {
+                callbacks_.on_connection(false);
             }
         }
         return;
     }
 
     // Process the received message
-    if (message_callback_) {
+    if (callbacks_.on_message) {
         std::string message = boost::beast::buffers_to_string(read_buffer_.data());
-        message_callback_(message);
+        callbacks_.on_message(message);
     }
 
     // Clear the buffer and continue reading if still listening
@@ -172,8 +160,8 @@ void WssWorker::HandleRead(const boost::system::error_code& ec, std::size_t byte
 }
 
 void WssWorker::ReportError(const std::string& error_message) {
-    if (error_callback_) {
-        error_callback_(error_message);
+    if (callbacks_.on_error) {
+        callbacks_.on_error(error_message);
     } else {
         std::cerr << "WssWorker error: " << error_message << std::endl;
     }

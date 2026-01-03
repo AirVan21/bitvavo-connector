@@ -1,6 +1,4 @@
 #include <iostream>
-#include <thread>
-#include <chrono>
 
 #include "network/WssWorker.h"
 
@@ -11,25 +9,24 @@ int main() {
 
     boost::asio::io_context io_context;
     
-    // Create WebSocket worker
-    WssWorker wss_worker(io_context);
-    
     // Set up callbacks
-    wss_worker.SetMessageCallback([](const std::string& message) {
+    Callbacks callbacks;
+    callbacks.on_message = [](const std::string& message) {
         std::cout << "Received message: " << message << std::endl;
-    });
-    
-    wss_worker.SetErrorCallback([](const std::string& error) {
+    };
+    callbacks.on_error = [](const std::string& error) {
         std::cerr << "WebSocket error: " << error << std::endl;
-    });
-    
-    wss_worker.SetConnectionCallback([](bool connected) {
+    };
+    callbacks.on_connection = [](bool connected) {
         if (connected) {
             std::cout << "WebSocket connected successfully!" << std::endl;
         } else {
             std::cout << "WebSocket disconnected." << std::endl;
         }
-    });
+    };
+    
+    // Create WebSocket worker with callbacks
+    WssWorker wss_worker(io_context, std::move(callbacks));
     
     // Example: Connect to a WebSocket server
     // Replace with your actual WebSocket server details
