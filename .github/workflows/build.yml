@@ -1,0 +1,116 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  build-gcc:
+    name: Build with GCC
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential \
+            cmake \
+            g++ \
+            libboost-all-dev \
+            libssl-dev \
+            git
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Verify executable
+        run: |
+          cd build
+          ls -la BitvavoConnector
+          file BitvavoConnector
+
+  build-clang:
+    name: Build with Clang
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential \
+            cmake \
+            clang \
+            libboost-all-dev \
+            libssl-dev \
+            git
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          export CC=clang
+          export CXX=clang++
+          cmake ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Verify executable
+        run: |
+          cd build
+          ls -la BitvavoConnector
+          file BitvavoConnector
+
+  build-release:
+    name: Build Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential \
+            cmake \
+            g++ \
+            libboost-all-dev \
+            libssl-dev \
+            git
+
+      - name: Configure CMake (Release)
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Verify executable
+        run: |
+          cd build
+          ls -la BitvavoConnector
+          file BitvavoConnector
+
