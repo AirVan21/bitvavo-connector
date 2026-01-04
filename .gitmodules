@@ -1,0 +1,3 @@
+[submodule "Dependencies/connector-network"]
+	path = Dependencies/connector-network
+	url = git@github.com:AirVan21/connector-network.git

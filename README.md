@@ -2,40 +2,42 @@
 
 A C++ WebSocket client for connecting to the Bitvavo cryptocurrency exchange API.
 
+## Cloning
+
+This project uses [connector-network](https://github.com/AirVan21/connector-network) as a submodule.
+
+```bash
+git clone --recursive git@github.com:AirVan21/bitvavo-connector.git
+```
+
+Or if already cloned:
+```bash
+git submodule update --init --recursive
+```
+
 ## Building the Application
 
 ### Using Docker
 
 ```bash
 docker build -t bitvavo-connector .
+docker run -it -v $(pwd):/bitvavo-connector bitvavo-connector
+# Inside container
+mkdir build && cd build && cmake .. && cmake --build .
 ```
-
-This command builds a Docker image named 'bitvavo-connector' using the Dockerfile in the current directory.
 
 ### Using CMake (Local Build)
 
 ```bash
 mkdir build && cd build
 cmake ..
-make
+cmake --build .
 ```
 
 ## Running the Application
 
-### Using Docker
-
 ```bash
-docker run -it --name bitvavo-connector -v $(pwd):/bitvavo-connector bitvavo-connector
-```
-
-This command runs a container named 'bitvavo-connector' from the 'bitvavo-connector' image.
-It mounts the current directory ($(pwd)) to '/bitvavo-connector' inside the container.
-The '-it' flag enables interactive mode with a terminal.
-
-### Running Locally
-
-```bash
-./BitvavoConnector
+./build/BitvavoConnector
 ```
 
 ## Features

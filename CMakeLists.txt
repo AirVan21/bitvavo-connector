@@ -11,18 +11,19 @@ find_package(Boost REQUIRED)
 # Find OpenSSL library
 find_package(OpenSSL REQUIRED)
 
+# Add connector-network submodule
+add_subdirectory(Dependencies/connector-network)
+
 # Add the executable target
-add_executable(BitvavoConnector
-    main.cpp
-    network/WssWorker.cpp
-)
+add_executable(BitvavoConnector main.cpp)
 
 # Include Boost and OpenSSL headers
 if(Boost_FOUND AND OpenSSL_FOUND)
     target_include_directories(BitvavoConnector PRIVATE ${Boost_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
-    target_link_libraries(BitvavoConnector PRIVATE 
-        ${Boost_LIBRARIES} 
-        OpenSSL::SSL 
+    target_link_libraries(BitvavoConnector PRIVATE
+        connector_network
+        ${Boost_LIBRARIES}
+        OpenSSL::SSL
         OpenSSL::Crypto
     )
 else()

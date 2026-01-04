@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "network/WssWorker.h"
+#include <WssWorker.h>
 
 using namespace connectors;
 
