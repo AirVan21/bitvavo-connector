@@ -23,13 +23,17 @@ git submodule update --init --recursive
 docker build -t bitvavo-connector .
 docker run -it -v $(pwd):/bitvavo-connector bitvavo-connector
 # Inside container
-mkdir build && cd build && cmake .. && cmake --build .
+mkdir build && cd build
+conan install .. --build=missing
+cmake ..
+cmake --build .
 ```
 
 ### Using CMake (Local Build)
 
 ```bash
 mkdir build && cd build
+conan install .. --build=missing
 cmake ..
 cmake --build .
 ```
