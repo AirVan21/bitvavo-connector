@@ -25,11 +25,19 @@ jobs:
             g++ \
             libboost-all-dev \
             libssl-dev \
+            python3-pip \
             git
+          pip3 install conan==1.64.1
+
+      - name: Setup Conan and install packages
+        run: |
+          conan profile new default --detect --force
+          conan profile update settings.compiler.libcxx=libstdc++11 default
+          mkdir -p build && cd build
+          conan install .. --build=missing
 
       - name: Configure CMake
         run: |
-          mkdir -p build
           cd build
           cmake ..
 
@@ -62,11 +70,20 @@ jobs:
             clang \
             libboost-all-dev \
             libssl-dev \
+            python3-pip \
             git
+          pip3 install conan==1.64.1
+
+      - name: Setup Conan and install packages
+        run: |
+          conan profile new default --detect --force
+          conan profile update settings.compiler=clang default
+          conan profile update settings.compiler.libcxx=libstdc++11 default
+          mkdir -p build && cd build
+          conan install .. --build=missing
 
       - name: Configure CMake
         run: |
-          mkdir -p build
           cd build
           export CC=clang
           export CXX=clang++
@@ -101,11 +118,19 @@ jobs:
             g++ \
             libboost-all-dev \
             libssl-dev \
+            python3-pip \
             git
+          pip3 install conan==1.64.1
+
+      - name: Setup Conan and install packages
+        run: |
+          conan profile new default --detect --force
+          conan profile update settings.compiler.libcxx=libstdc++11 default
+          mkdir -p build && cd build
+          conan install .. --build=missing
 
       - name: Configure CMake (Release)
         run: |
-          mkdir -p build
           cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
 
