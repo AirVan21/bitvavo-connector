@@ -8,6 +8,7 @@ class BitvavoConnectorConan(ConanFile):
 
     def requirements(self):
         self.requires("openssl/1.1.1t")
+        self.requires("rapidjson/cci.20220822")
 
     def build(self):
         cmake = CMake(self)
