@@ -43,7 +43,9 @@ Makefile
 *.pdb
 
 # IDE files
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
 .cache/
 *.swp
