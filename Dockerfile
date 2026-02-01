@@ -13,10 +13,12 @@ RUN apt-get update && apt-get install -y \
     clangd \
     libstdc++-13-dev \
     git \
+    openssh-client \
     python3-full \
     python3-pip \
     pipx \
     libboost-all-dev \
+    libssl-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
