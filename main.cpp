@@ -1,68 +1,88 @@
+#include <atomic>
+#include <csignal>
+#include <iomanip>
 #include <iostream>
+#include <thread>
 
-#include <WssWorker.h>
+#include <boost/asio.hpp>
 
-using namespace connectors;
+#include "BitvavoClient.h"
+
+static std::atomic<bool> g_running{true};
+
+void SignalHandler(int) {
+    g_running = false;
+}
 
 int main() {
-    std::cout << "Welcome to the Bitvavo Connector!" << std::endl;
+    std::cout << "Bitvavo BBO Connector" << std::endl;
+
+    std::signal(SIGINT, SignalHandler);
 
     boost::asio::io_context io_context;
-    
-    // Set up callbacks
-    Callbacks callbacks;
-    callbacks.on_message = [](const std::string& message) {
-        std::cout << "Received message: " << message << std::endl;
-    };
-    callbacks.on_error = [](const std::string& error) {
-        std::cerr << "WebSocket error: " << error << std::endl;
-    };
-    callbacks.on_connection = [](bool connected) {
+    auto work_guard = boost::asio::make_work_guard(io_context);
+
+    connectors::BitvavoClient client(io_context);
+
+    client.SetBBOCallback([](const connectors::BBO& bbo) {
+        std::cout << std::fixed << std::setprecision(2)
+                  << "[BBO] " << bbo.market
+                  << " bid=" << bbo.bestBid << " (" << bbo.bestBidSize << ")"
+                  << " ask=" << bbo.bestAsk << " (" << bbo.bestAskSize << ")"
+                  << " last=" << bbo.lastPrice
+                  << std::endl;
+    });
+
+    client.SetErrorCallback([](const std::string& error) {
+        std::cerr << "[ERROR] " << error << std::endl;
+    });
+
+    client.SetConnectionCallback([](bool connected) {
         if (connected) {
-            std::cout << "WebSocket connected successfully!" << std::endl;
+            std::cout << "[CONN] Connected to Bitvavo WebSocket" << std::endl;
         } else {
-            std::cout << "WebSocket disconnected." << std::endl;
+            std::cout << "[CONN] Disconnected" << std::endl;
         }
-    };
-    
-    // Create WebSocket worker with callbacks
-    WssWorker wss_worker(io_context, std::move(callbacks));
-    
-    // Example: Connect to a WebSocket server
-    // Replace with your actual WebSocket server details
-    ConnectionSettings settings("ws.bitvavo.com", "443", "/v2");  // Example echo server
-    
-    std::cout << "Connecting to " << settings.host << ":" << settings.port << settings.path << std::endl;
-    
-    // Connect asynchronously
-    auto connect_future = wss_worker.Connect(settings);
-    
-    // Wait for connection
-    if (connect_future.get()) {
-        std::cout << "Connection established!" << std::endl;
+    });
 
-        // Start listening for incoming messages
-        wss_worker.StartListening();
+    // Run io_context on a background thread
+    std::thread io_thread([&io_context]() {
+        io_context.run();
+    });
 
-        // Send message
-        std::string test_message = "{\n"
-                                   "  \"action\": \"getTickerPrice\","
-                                   "  \"requestId\": 1,"
-                                   "  \"market\": \"BTC-EUR\""
-                                   "}";
-        auto send_future = wss_worker.Send(test_message);
-        
-        if (send_future.get()) {
-            std::cout << "Message sent successfully!" << std::endl;
-        } else {
-            std::cout << "Failed to send message." << std::endl;
-        }
-    } else {
-        std::cout << "Failed to connect to WebSocket server." << std::endl;
+    // Connect
+    auto connect_future = client.Connect();
+    if (!connect_future.get()) {
+        std::cerr << "Failed to connect" << std::endl;
+        work_guard.reset();
+        io_context.stop();
+        io_thread.join();
+        return 1;
     }
-    
-    // Run the io_context
-    io_context.run();
+
+    // Subscribe to ticker for BTC-EUR and ETH-EUR
+    auto sub_future = client.SubscribeTicker({"BTC-EUR", "ETH-EUR"});
+    if (!sub_future.get()) {
+        std::cerr << "Failed to subscribe" << std::endl;
+        client.Disconnect();
+        work_guard.reset();
+        io_context.stop();
+        io_thread.join();
+        return 1;
+    }
+
+    std::cout << "Subscribed. Streaming BBO updates (Ctrl+C to quit)..." << std::endl;
+
+    // Wait for SIGINT
+    while (g_running) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::cout << "\nShutting down..." << std::endl;
+    client.Disconnect();
+    work_guard.reset();
+    io_context.stop();
+    io_thread.join();
 
     return 0;
 }
