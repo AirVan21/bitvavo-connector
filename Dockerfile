@@ -20,11 +20,13 @@ RUN apt-get update && apt-get install -y \
     libboost-all-dev \
     libssl-dev \
     curl \
+    nodejs \
+    npm \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code
-RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN npm install -g @anthropic-ai/claude-code
 
 # Add pipx bin to PATH
 ENV PATH="/root/.local/bin:$PATH"
