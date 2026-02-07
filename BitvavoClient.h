@@ -21,19 +21,44 @@ struct BBO {
     double lastPrice = 0.0;
 };
 
+struct OrderBookEntry {
+    double price = 0.0;
+    double size = 0.0;
+};
+
+struct OrderBook {
+    std::string market;
+    int64_t nonce = 0;
+    std::vector<OrderBookEntry> bids;
+    std::vector<OrderBookEntry> asks;
+};
+
+struct PublicTrade {
+    std::string market;
+    std::string id;
+    double price = 0.0;
+    double amount = 0.0;
+    std::string side;       // "buy" or "sell"
+    int64_t timestamp = 0;  // UTC milliseconds
+};
+
 enum class ClientState {
     Disconnected,
     Connecting,
     Connected
 };
 
-using BBOCallback = std::function<void(const BBO&)>;
-using ErrorCallback = std::function<void(const std::string&)>;
-using ConnectionCallback = std::function<void(bool)>;
-
 class BitvavoClient {
 public:
-    explicit BitvavoClient(boost::asio::io_context& io_context);
+    struct Callbacks {
+        std::function<void(const BBO&)> HandleBBO;
+        std::function<void(const OrderBook&)> HandleOrderBook;
+        std::function<void(const PublicTrade&)> HandlePublicTrade;
+        std::function<void(const std::string&)> HandleError;
+        std::function<void(bool)> HandleConnection;
+    };
+
+    BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks);
     ~BitvavoClient();
 
     BitvavoClient(const BitvavoClient&) = delete;
@@ -44,10 +69,6 @@ public:
 
     std::future<bool> SubscribeTicker(std::vector<std::string> markets);
     std::future<bool> UnsubscribeTicker(std::vector<std::string> markets);
-
-    void SetBBOCallback(BBOCallback callback);
-    void SetErrorCallback(ErrorCallback callback);
-    void SetConnectionCallback(ConnectionCallback callback);
 
     ClientState GetState() const { return state_; }
 
@@ -66,9 +87,7 @@ private:
     std::unique_ptr<WssWorker> worker_;
     ClientState state_ = ClientState::Disconnected;
 
-    BBOCallback bbo_callback_;
-    ErrorCallback error_callback_;
-    ConnectionCallback connection_callback_;
+    Callbacks callbacks_;
 
     std::mutex subscription_mutex_;
     std::set<std::string> subscribed_markets_;

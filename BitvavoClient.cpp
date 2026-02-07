@@ -9,8 +9,8 @@
 
 namespace connectors {
 
-BitvavoClient::BitvavoClient(boost::asio::io_context& io_context)
-    : io_context_(io_context) {
+BitvavoClient::BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks)
+    : io_context_(io_context), callbacks_(std::move(callbacks)) {
 }
 
 BitvavoClient::~BitvavoClient() {
@@ -26,12 +26,12 @@ std::future<bool> BitvavoClient::Connect() {
 
     state_ = ClientState::Connecting;
 
-    Callbacks callbacks;
-    callbacks.on_message = [this](const std::string& msg) { OnWsMessage(msg); };
-    callbacks.on_error = [this](const std::string& err) { OnWsError(err); };
-    callbacks.on_connection = [this](bool connected) { OnWsConnection(connected); };
+    ::connectors::Callbacks ws_callbacks;
+    ws_callbacks.on_message = [this](const std::string& msg) { OnWsMessage(msg); };
+    ws_callbacks.on_error = [this](const std::string& err) { OnWsError(err); };
+    ws_callbacks.on_connection = [this](bool connected) { OnWsConnection(connected); };
 
-    worker_ = std::make_unique<WssWorker>(io_context_, std::move(callbacks));
+    worker_ = std::make_unique<WssWorker>(io_context_, std::move(ws_callbacks));
 
     ConnectionSettings settings{"ws.bitvavo.com", "443", "/v2/"};
     auto future = worker_->Connect(settings);
@@ -52,8 +52,8 @@ void BitvavoClient::Disconnect() {
     worker_.reset();
     state_ = ClientState::Disconnected;
 
-    if (connection_callback_) {
-        connection_callback_(false);
+    if (callbacks_.HandleConnection) {
+        callbacks_.HandleConnection(false);
     }
 }
 
@@ -94,32 +94,20 @@ std::future<bool> BitvavoClient::UnsubscribeTicker(std::vector<std::string> mark
     return future;
 }
 
-void BitvavoClient::SetBBOCallback(BBOCallback callback) {
-    bbo_callback_ = std::move(callback);
-}
-
-void BitvavoClient::SetErrorCallback(ErrorCallback callback) {
-    error_callback_ = std::move(callback);
-}
-
-void BitvavoClient::SetConnectionCallback(ConnectionCallback callback) {
-    connection_callback_ = std::move(callback);
-}
-
 void BitvavoClient::OnWsMessage(const std::string& message) {
     rapidjson::Document doc;
     doc.Parse(message.c_str());
 
     if (doc.HasParseError()) {
-        if (error_callback_) {
-            error_callback_("Failed to parse JSON: " + message);
+        if (callbacks_.HandleError) {
+            callbacks_.HandleError("Failed to parse JSON: " + message);
         }
         return;
     }
 
     if (!doc.IsObject()) {
-        if (error_callback_) {
-            error_callback_("JSON is not an object: " + message);
+        if (callbacks_.HandleError) {
+            callbacks_.HandleError("JSON is not an object: " + message);
         }
         return;
     }
@@ -156,8 +144,8 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
 }
 
 void BitvavoClient::OnWsError(const std::string& error) {
-    if (error_callback_) {
-        error_callback_(error);
+    if (callbacks_.HandleError) {
+        callbacks_.HandleError(error);
     }
 }
 
@@ -169,8 +157,8 @@ void BitvavoClient::OnWsConnection(bool connected) {
         state_ = ClientState::Disconnected;
     }
 
-    if (connection_callback_) {
-        connection_callback_(connected);
+    if (callbacks_.HandleConnection) {
+        callbacks_.HandleConnection(connected);
     }
 }
 
@@ -179,8 +167,8 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError() || !doc.IsObject()) {
-        if (error_callback_) {
-            error_callback_("Invalid ticker JSON: " + message);
+        if (callbacks_.HandleError) {
+            callbacks_.HandleError("Invalid ticker JSON: " + message);
         }
         return;
     }
@@ -191,8 +179,8 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
 
     for (const auto* field : required_fields) {
         if (!doc.HasMember(field) || !doc[field].IsString()) {
-            if (error_callback_) {
-                error_callback_(std::string("Missing or invalid field '") + field + "' in ticker: " + message);
+            if (callbacks_.HandleError) {
+                callbacks_.HandleError(std::string("Missing or invalid field '") + field + "' in ticker: " + message);
             }
             return;
         }
@@ -207,12 +195,12 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
         bbo.bestAskSize = std::stod(doc["bestAskSize"].GetString());
         bbo.lastPrice = std::stod(doc["lastPrice"].GetString());
 
-        if (bbo_callback_) {
-            bbo_callback_(bbo);
+        if (callbacks_.HandleBBO) {
+            callbacks_.HandleBBO(bbo);
         }
     } catch (const std::exception& e) {
-        if (error_callback_) {
-            error_callback_(std::string("Failed to parse ticker values: ") + e.what());
+        if (callbacks_.HandleError) {
+            callbacks_.HandleError(std::string("Failed to parse ticker values: ") + e.what());
         }
     }
 }
