@@ -22,28 +22,27 @@ int main() {
     boost::asio::io_context io_context;
     auto work_guard = boost::asio::make_work_guard(io_context);
 
-    connectors::BitvavoClient client(io_context);
-
-    client.SetBBOCallback([](const connectors::BBO& bbo) {
+    connectors::BitvavoClient::Callbacks callbacks;
+    callbacks.HandleBBO = [](const connectors::BBO& bbo) {
         std::cout << std::fixed << std::setprecision(2)
                   << "[BBO] " << bbo.market
                   << " bid=" << bbo.bestBid << " (" << bbo.bestBidSize << ")"
                   << " ask=" << bbo.bestAsk << " (" << bbo.bestAskSize << ")"
                   << " last=" << bbo.lastPrice
                   << std::endl;
-    });
-
-    client.SetErrorCallback([](const std::string& error) {
+    };
+    callbacks.HandleError = [](const std::string& error) {
         std::cerr << "[ERROR] " << error << std::endl;
-    });
-
-    client.SetConnectionCallback([](bool connected) {
+    };
+    callbacks.HandleConnection = [](bool connected) {
         if (connected) {
             std::cout << "[CONN] Connected to Bitvavo WebSocket" << std::endl;
         } else {
             std::cout << "[CONN] Disconnected" << std::endl;
         }
-    });
+    };
+
+    connectors::BitvavoClient client(io_context, std::move(callbacks));
 
     // Run io_context on a background thread
     std::thread io_thread([&io_context]() {
