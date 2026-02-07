@@ -23,31 +23,31 @@ int main() {
     auto work_guard = boost::asio::make_work_guard(io_context);
 
     connectors::BitvavoClient::Callbacks callbacks;
-    callbacks.HandleBBO = [](const connectors::BBO& bbo) {
-        std::cout << std::fixed << std::setprecision(2) << "[BBO] " << bbo.market;
+    callbacks.handle_bbo_ = [](const connectors::BBO& bbo) {
+        std::cout << std::fixed << std::setprecision(2) << "[BBO] " << bbo.market_;
 
-        if (bbo.bestBid && bbo.bestBidSize) {
-            std::cout << " bid=" << *bbo.bestBid << " (" << *bbo.bestBidSize << ")";
+        if (bbo.best_bid_ && bbo.best_bid_size_) {
+            std::cout << " bid=" << *bbo.best_bid_ << " (" << *bbo.best_bid_size_ << ")";
         }
 
-        if (bbo.bestAsk && bbo.bestAskSize) {
-            std::cout << " ask=" << *bbo.bestAsk << " (" << *bbo.bestAskSize << ")";
+        if (bbo.best_ask_ && bbo.best_ask_size_) {
+            std::cout << " ask=" << *bbo.best_ask_ << " (" << *bbo.best_ask_size_ << ")";
         }
 
         std::cout << std::endl;
     };
-    callbacks.HandlePublicTrade = [](const connectors::PublicTrade& trade) {
+    callbacks.handle_public_trade_ = [](const connectors::PublicTrade& trade) {
         std::cout << std::fixed << std::setprecision(2)
-                  << "[TRADE] " << trade.market
-                  << " " << trade.side
-                  << " " << trade.amount << " @ " << trade.price
-                  << " (id=" << trade.id << ")"
+                  << "[TRADE] " << trade.market_
+                  << " " << trade.side_
+                  << " " << trade.amount_ << " @ " << trade.price_
+                  << " (id=" << trade.id_ << ")"
                   << std::endl;
     };
-    callbacks.HandleError = [](const std::string& error) {
+    callbacks.handle_error_ = [](const std::string& error) {
         std::cerr << "[ERROR] " << error << std::endl;
     };
-    callbacks.HandleConnection = [](bool connected) {
+    callbacks.handle_connection_ = [](bool connected) {
         if (connected) {
             std::cout << "[CONN] Connected to Bitvavo WebSocket" << std::endl;
         } else {
