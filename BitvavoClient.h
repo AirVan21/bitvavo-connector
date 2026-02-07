@@ -2,8 +2,7 @@
 
 #include <functional>
 #include <future>
-#include <mutex>
-#include <set>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,11 +13,10 @@ namespace connectors {
 
 struct BBO {
     std::string market;
-    double bestBid = 0.0;
-    double bestBidSize = 0.0;
-    double bestAsk = 0.0;
-    double bestAskSize = 0.0;
-    double lastPrice = 0.0;
+    std::optional<double> bestBid;
+    std::optional<double> bestBidSize;
+    std::optional<double> bestAsk;
+    std::optional<double> bestAskSize;
 };
 
 struct OrderBookEntry {
@@ -70,6 +68,9 @@ public:
     std::future<bool> SubscribeTicker(std::vector<std::string> markets);
     std::future<bool> UnsubscribeTicker(std::vector<std::string> markets);
 
+    std::future<bool> SubscribeTrades(std::vector<std::string> markets);
+    std::future<bool> UnsubscribeTrades(std::vector<std::string> markets);
+
     ClientState GetState() const { return state_; }
 
 private:
@@ -78,6 +79,7 @@ private:
     void OnWsConnection(bool connected);
 
     void HandleTickerEvent(const std::string& message);
+    void HandleTradeEvent(const std::string& message);
 
     static std::string BuildSubscribeJson(const std::string& action,
                                           const std::string& channel,
@@ -89,13 +91,15 @@ private:
 
     Callbacks callbacks_;
 
-    std::mutex subscription_mutex_;
-    std::set<std::string> subscribed_markets_;
-
     std::promise<bool> subscribe_promise_;
     std::promise<bool> unsubscribe_promise_;
     bool subscribe_pending_ = false;
     bool unsubscribe_pending_ = false;
+
+    std::promise<bool> subscribe_trades_promise_;
+    std::promise<bool> unsubscribe_trades_promise_;
+    bool subscribe_trades_pending_ = false;
+    bool unsubscribe_trades_pending_ = false;
 };
 
 } // namespace connectors

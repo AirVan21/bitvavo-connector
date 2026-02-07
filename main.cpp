@@ -24,11 +24,24 @@ int main() {
 
     connectors::BitvavoClient::Callbacks callbacks;
     callbacks.HandleBBO = [](const connectors::BBO& bbo) {
+        std::cout << std::fixed << std::setprecision(2) << "[BBO] " << bbo.market;
+
+        if (bbo.bestBid && bbo.bestBidSize) {
+            std::cout << " bid=" << *bbo.bestBid << " (" << *bbo.bestBidSize << ")";
+        }
+
+        if (bbo.bestAsk && bbo.bestAskSize) {
+            std::cout << " ask=" << *bbo.bestAsk << " (" << *bbo.bestAskSize << ")";
+        }
+
+        std::cout << std::endl;
+    };
+    callbacks.HandlePublicTrade = [](const connectors::PublicTrade& trade) {
         std::cout << std::fixed << std::setprecision(2)
-                  << "[BBO] " << bbo.market
-                  << " bid=" << bbo.bestBid << " (" << bbo.bestBidSize << ")"
-                  << " ask=" << bbo.bestAsk << " (" << bbo.bestAskSize << ")"
-                  << " last=" << bbo.lastPrice
+                  << "[TRADE] " << trade.market
+                  << " " << trade.side
+                  << " " << trade.amount << " @ " << trade.price
+                  << " (id=" << trade.id << ")"
                   << std::endl;
     };
     callbacks.HandleError = [](const std::string& error) {
@@ -62,7 +75,7 @@ int main() {
     // Subscribe to ticker for BTC-EUR and ETH-EUR
     auto sub_future = client.SubscribeTicker({"BTC-EUR", "ETH-EUR"});
     if (!sub_future.get()) {
-        std::cerr << "Failed to subscribe" << std::endl;
+        std::cerr << "Failed to subscribe to ticker" << std::endl;
         client.Disconnect();
         work_guard.reset();
         io_context.stop();
@@ -70,7 +83,18 @@ int main() {
         return 1;
     }
 
-    std::cout << "Subscribed. Streaming BBO updates (Ctrl+C to quit)..." << std::endl;
+    // Subscribe to trades for BTC-EUR and ETH-EUR
+    auto trades_future = client.SubscribeTrades({"BTC-EUR", "ETH-EUR"});
+    if (!trades_future.get()) {
+        std::cerr << "Failed to subscribe to trades" << std::endl;
+        client.Disconnect();
+        work_guard.reset();
+        io_context.stop();
+        io_thread.join();
+        return 1;
+    }
+
+    std::cout << "Subscribed to ticker and trades. Streaming updates (Ctrl+C to quit)..." << std::endl;
 
     // Wait for SIGINT
     while (g_running) {
