@@ -2,8 +2,7 @@
 
 #include <functional>
 #include <future>
-#include <mutex>
-#include <set>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -13,12 +12,32 @@
 namespace connectors {
 
 struct BBO {
-    std::string market;
-    double bestBid = 0.0;
-    double bestBidSize = 0.0;
-    double bestAsk = 0.0;
-    double bestAskSize = 0.0;
-    double lastPrice = 0.0;
+    std::string market_;
+    std::optional<double> best_bid_;
+    std::optional<double> best_bid_size_;
+    std::optional<double> best_ask_;
+    std::optional<double> best_ask_size_;
+};
+
+struct OrderBookEntry {
+    double price_ = 0.0;
+    double size_ = 0.0;
+};
+
+struct OrderBook {
+    std::string market_;
+    int64_t nonce_ = 0;
+    std::vector<OrderBookEntry> bids_;
+    std::vector<OrderBookEntry> asks_;
+};
+
+struct PublicTrade {
+    std::string market_;
+    std::string id_;
+    double price_ = 0.0;
+    double amount_ = 0.0;
+    std::string side_;       // "buy" or "sell"
+    int64_t timestamp_ = 0;  // UTC milliseconds
 };
 
 enum class ClientState {
@@ -27,13 +46,17 @@ enum class ClientState {
     Connected
 };
 
-using BBOCallback = std::function<void(const BBO&)>;
-using ErrorCallback = std::function<void(const std::string&)>;
-using ConnectionCallback = std::function<void(bool)>;
-
 class BitvavoClient {
 public:
-    explicit BitvavoClient(boost::asio::io_context& io_context);
+    struct Callbacks {
+        std::function<void(const BBO&)> handle_bbo_;
+        std::function<void(const OrderBook&)> handle_order_book_;
+        std::function<void(const PublicTrade&)> handle_public_trade_;
+        std::function<void(const std::string&)> handle_error_;
+        std::function<void(bool)> handle_connection_;
+    };
+
+    BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks);
     ~BitvavoClient();
 
     BitvavoClient(const BitvavoClient&) = delete;
@@ -45,9 +68,8 @@ public:
     std::future<bool> SubscribeTicker(std::vector<std::string> markets);
     std::future<bool> UnsubscribeTicker(std::vector<std::string> markets);
 
-    void SetBBOCallback(BBOCallback callback);
-    void SetErrorCallback(ErrorCallback callback);
-    void SetConnectionCallback(ConnectionCallback callback);
+    std::future<bool> SubscribeTrades(std::vector<std::string> markets);
+    std::future<bool> UnsubscribeTrades(std::vector<std::string> markets);
 
     ClientState GetState() const { return state_; }
 
@@ -57,6 +79,7 @@ private:
     void OnWsConnection(bool connected);
 
     void HandleTickerEvent(const std::string& message);
+    void HandleTradeEvent(const std::string& message);
 
     static std::string BuildSubscribeJson(const std::string& action,
                                           const std::string& channel,
@@ -66,17 +89,17 @@ private:
     std::unique_ptr<WssWorker> worker_;
     ClientState state_ = ClientState::Disconnected;
 
-    BBOCallback bbo_callback_;
-    ErrorCallback error_callback_;
-    ConnectionCallback connection_callback_;
-
-    std::mutex subscription_mutex_;
-    std::set<std::string> subscribed_markets_;
+    Callbacks callbacks_;
 
     std::promise<bool> subscribe_promise_;
     std::promise<bool> unsubscribe_promise_;
     bool subscribe_pending_ = false;
     bool unsubscribe_pending_ = false;
+
+    std::promise<bool> subscribe_trades_promise_;
+    std::promise<bool> unsubscribe_trades_promise_;
+    bool subscribe_trades_pending_ = false;
+    bool unsubscribe_trades_pending_ = false;
 };
 
 } // namespace connectors

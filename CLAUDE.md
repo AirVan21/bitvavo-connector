@@ -35,6 +35,10 @@ The built executable is `build/BitvavoConnector`.
 - **macOS:** `brew install boost openssl`
 - **Ubuntu:** `apt-get install libboost-all-dev libssl-dev`
 
+## Coding Style
+
+- **Member naming:** All struct and class fields use `snake_case_` with a trailing underscore (e.g., `best_bid_`, `market_`, `io_context_`).
+
 ## Architecture
 
 The project is a WebSocket client that connects to the Bitvavo cryptocurrency exchange and streams real-time Best Bid/Offer (BBO) market data.

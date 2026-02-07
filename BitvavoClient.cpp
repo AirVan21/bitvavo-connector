@@ -9,8 +9,8 @@
 
 namespace connectors {
 
-BitvavoClient::BitvavoClient(boost::asio::io_context& io_context)
-    : io_context_(io_context) {
+BitvavoClient::BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks)
+    : io_context_(io_context), callbacks_(std::move(callbacks)) {
 }
 
 BitvavoClient::~BitvavoClient() {
@@ -26,12 +26,12 @@ std::future<bool> BitvavoClient::Connect() {
 
     state_ = ClientState::Connecting;
 
-    Callbacks callbacks;
-    callbacks.on_message = [this](const std::string& msg) { OnWsMessage(msg); };
-    callbacks.on_error = [this](const std::string& err) { OnWsError(err); };
-    callbacks.on_connection = [this](bool connected) { OnWsConnection(connected); };
+    ::connectors::Callbacks ws_callbacks;
+    ws_callbacks.on_message = [this](const std::string& msg) { OnWsMessage(msg); };
+    ws_callbacks.on_error = [this](const std::string& err) { OnWsError(err); };
+    ws_callbacks.on_connection = [this](bool connected) { OnWsConnection(connected); };
 
-    worker_ = std::make_unique<WssWorker>(io_context_, std::move(callbacks));
+    worker_ = std::make_unique<WssWorker>(io_context_, std::move(ws_callbacks));
 
     ConnectionSettings settings{"ws.bitvavo.com", "443", "/v2/"};
     auto future = worker_->Connect(settings);
@@ -42,18 +42,13 @@ std::future<bool> BitvavoClient::Connect() {
 void BitvavoClient::Disconnect() {
     if (!worker_) return;
 
-    {
-        std::lock_guard<std::mutex> lock(subscription_mutex_);
-        subscribed_markets_.clear();
-    }
-
     worker_->StopListening();
     worker_->Disconnect();
     worker_.reset();
     state_ = ClientState::Disconnected;
 
-    if (connection_callback_) {
-        connection_callback_(false);
+    if (callbacks_.handle_connection_) {
+        callbacks_.handle_connection_(false);
     }
 }
 
@@ -94,16 +89,41 @@ std::future<bool> BitvavoClient::UnsubscribeTicker(std::vector<std::string> mark
     return future;
 }
 
-void BitvavoClient::SetBBOCallback(BBOCallback callback) {
-    bbo_callback_ = std::move(callback);
+std::future<bool> BitvavoClient::SubscribeTrades(std::vector<std::string> markets) {
+    if (state_ != ClientState::Connected) {
+        std::promise<bool> p;
+        p.set_value(false);
+        return p.get_future();
+    }
+
+    auto json = BuildSubscribeJson("subscribe", "trades", markets);
+
+    subscribe_trades_promise_ = std::promise<bool>();
+    subscribe_trades_pending_ = true;
+    auto future = subscribe_trades_promise_.get_future();
+
+    auto send_future = worker_->Send(json);
+    // We don't block on send_future here; the ack from the server resolves subscribe_trades_promise_
+
+    return future;
 }
 
-void BitvavoClient::SetErrorCallback(ErrorCallback callback) {
-    error_callback_ = std::move(callback);
-}
+std::future<bool> BitvavoClient::UnsubscribeTrades(std::vector<std::string> markets) {
+    if (state_ != ClientState::Connected) {
+        std::promise<bool> p;
+        p.set_value(false);
+        return p.get_future();
+    }
 
-void BitvavoClient::SetConnectionCallback(ConnectionCallback callback) {
-    connection_callback_ = std::move(callback);
+    auto json = BuildSubscribeJson("unsubscribe", "trades", markets);
+
+    unsubscribe_trades_promise_ = std::promise<bool>();
+    unsubscribe_trades_pending_ = true;
+    auto future = unsubscribe_trades_promise_.get_future();
+
+    worker_->Send(json);
+
+    return future;
 }
 
 void BitvavoClient::OnWsMessage(const std::string& message) {
@@ -111,15 +131,15 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError()) {
-        if (error_callback_) {
-            error_callback_("Failed to parse JSON: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Failed to parse JSON: " + message);
         }
         return;
     }
 
     if (!doc.IsObject()) {
-        if (error_callback_) {
-            error_callback_("JSON is not an object: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("JSON is not an object: " + message);
         }
         return;
     }
@@ -129,35 +149,33 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
 
         if (event == "ticker") {
             HandleTickerEvent(message);
+        } else if (event == "trade") {
+            HandleTradeEvent(message);
         } else if (event == "subscribed") {
             if (subscribe_pending_) {
-                // Update subscribed markets from acknowledgement
-                if (doc.HasMember("subscriptions") && doc["subscriptions"].IsObject()) {
-                    const auto& subs = doc["subscriptions"];
-                    if (subs.HasMember("ticker") && subs["ticker"].IsArray()) {
-                        std::lock_guard<std::mutex> lock(subscription_mutex_);
-                        for (const auto& m : subs["ticker"].GetArray()) {
-                            if (m.IsString()) {
-                                subscribed_markets_.insert(m.GetString());
-                            }
-                        }
-                    }
-                }
                 subscribe_pending_ = false;
                 subscribe_promise_.set_value(true);
+            }
+            if (subscribe_trades_pending_) {
+                subscribe_trades_pending_ = false;
+                subscribe_trades_promise_.set_value(true);
             }
         } else if (event == "unsubscribed") {
             if (unsubscribe_pending_) {
                 unsubscribe_pending_ = false;
                 unsubscribe_promise_.set_value(true);
             }
+            if (unsubscribe_trades_pending_) {
+                unsubscribe_trades_pending_ = false;
+                unsubscribe_trades_promise_.set_value(true);
+            }
         }
     }
 }
 
 void BitvavoClient::OnWsError(const std::string& error) {
-    if (error_callback_) {
-        error_callback_(error);
+    if (callbacks_.handle_error_) {
+        callbacks_.handle_error_(error);
     }
 }
 
@@ -169,8 +187,8 @@ void BitvavoClient::OnWsConnection(bool connected) {
         state_ = ClientState::Disconnected;
     }
 
-    if (connection_callback_) {
-        connection_callback_(connected);
+    if (callbacks_.handle_connection_) {
+        callbacks_.handle_connection_(connected);
     }
 }
 
@@ -179,40 +197,95 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError() || !doc.IsObject()) {
-        if (error_callback_) {
-            error_callback_("Invalid ticker JSON: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Invalid ticker JSON: " + message);
         }
         return;
     }
 
-    const char* required_fields[] = {
-        "market", "bestBid", "bestBidSize", "bestAsk", "bestAskSize", "lastPrice"
-    };
+    // Market field is required
+    if (!doc.HasMember("market") || !doc["market"].IsString()) {
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Missing or invalid 'market' field in ticker: " + message);
+        }
+        return;
+    }
 
-    for (const auto* field : required_fields) {
+    try {
+        BBO bbo;
+        bbo.market_ = doc["market"].GetString();
+
+        // Parse optional bid fields
+        if (doc.HasMember("bestBid") && doc["bestBid"].IsString()) {
+            bbo.best_bid_ = std::stod(doc["bestBid"].GetString());
+        }
+        if (doc.HasMember("bestBidSize") && doc["bestBidSize"].IsString()) {
+            bbo.best_bid_size_ = std::stod(doc["bestBidSize"].GetString());
+        }
+
+        // Parse optional ask fields
+        if (doc.HasMember("bestAsk") && doc["bestAsk"].IsString()) {
+            bbo.best_ask_ = std::stod(doc["bestAsk"].GetString());
+        }
+        if (doc.HasMember("bestAskSize") && doc["bestAskSize"].IsString()) {
+            bbo.best_ask_size_ = std::stod(doc["bestAskSize"].GetString());
+        }
+
+        if (callbacks_.handle_bbo_) {
+            callbacks_.handle_bbo_(bbo);
+        }
+    } catch (const std::exception& e) {
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_(std::string("Failed to parse ticker values: ") + e.what());
+        }
+    }
+}
+
+void BitvavoClient::HandleTradeEvent(const std::string& message) {
+    rapidjson::Document doc;
+    doc.Parse(message.c_str());
+
+    if (doc.HasParseError() || !doc.IsObject()) {
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Invalid trade JSON: " + message);
+        }
+        return;
+    }
+
+    // Validate required string fields
+    const char* required_string_fields[] = {"market", "id", "price", "amount", "side"};
+    for (const auto* field : required_string_fields) {
         if (!doc.HasMember(field) || !doc[field].IsString()) {
-            if (error_callback_) {
-                error_callback_(std::string("Missing or invalid field '") + field + "' in ticker: " + message);
+            if (callbacks_.handle_error_) {
+                callbacks_.handle_error_(std::string("Missing or invalid field '") + field + "' in trade: " + message);
             }
             return;
         }
     }
 
-    try {
-        BBO bbo;
-        bbo.market = doc["market"].GetString();
-        bbo.bestBid = std::stod(doc["bestBid"].GetString());
-        bbo.bestBidSize = std::stod(doc["bestBidSize"].GetString());
-        bbo.bestAsk = std::stod(doc["bestAsk"].GetString());
-        bbo.bestAskSize = std::stod(doc["bestAskSize"].GetString());
-        bbo.lastPrice = std::stod(doc["lastPrice"].GetString());
+    // Validate timestamp (should be a number)
+    if (!doc.HasMember("timestamp") || !doc["timestamp"].IsInt64()) {
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Missing or invalid field 'timestamp' in trade: " + message);
+        }
+        return;
+    }
 
-        if (bbo_callback_) {
-            bbo_callback_(bbo);
+    try {
+        PublicTrade trade;
+        trade.market_ = doc["market"].GetString();
+        trade.id_ = doc["id"].GetString();
+        trade.price_ = std::stod(doc["price"].GetString());
+        trade.amount_ = std::stod(doc["amount"].GetString());
+        trade.side_ = doc["side"].GetString();
+        trade.timestamp_ = doc["timestamp"].GetInt64();
+
+        if (callbacks_.handle_public_trade_) {
+            callbacks_.handle_public_trade_(trade);
         }
     } catch (const std::exception& e) {
-        if (error_callback_) {
-            error_callback_(std::string("Failed to parse ticker values: ") + e.what());
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_(std::string("Failed to parse trade values: ") + e.what());
         }
     }
 }

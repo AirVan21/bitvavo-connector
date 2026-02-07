@@ -22,28 +22,40 @@ int main() {
     boost::asio::io_context io_context;
     auto work_guard = boost::asio::make_work_guard(io_context);
 
-    connectors::BitvavoClient client(io_context);
+    connectors::BitvavoClient::Callbacks callbacks;
+    callbacks.handle_bbo_ = [](const connectors::BBO& bbo) {
+        std::cout << std::fixed << std::setprecision(2) << "[BBO] " << bbo.market_;
 
-    client.SetBBOCallback([](const connectors::BBO& bbo) {
+        if (bbo.best_bid_ && bbo.best_bid_size_) {
+            std::cout << " bid=" << *bbo.best_bid_ << " (" << *bbo.best_bid_size_ << ")";
+        }
+
+        if (bbo.best_ask_ && bbo.best_ask_size_) {
+            std::cout << " ask=" << *bbo.best_ask_ << " (" << *bbo.best_ask_size_ << ")";
+        }
+
+        std::cout << std::endl;
+    };
+    callbacks.handle_public_trade_ = [](const connectors::PublicTrade& trade) {
         std::cout << std::fixed << std::setprecision(2)
-                  << "[BBO] " << bbo.market
-                  << " bid=" << bbo.bestBid << " (" << bbo.bestBidSize << ")"
-                  << " ask=" << bbo.bestAsk << " (" << bbo.bestAskSize << ")"
-                  << " last=" << bbo.lastPrice
+                  << "[TRADE] " << trade.market_
+                  << " " << trade.side_
+                  << " " << trade.amount_ << " @ " << trade.price_
+                  << " (id=" << trade.id_ << ")"
                   << std::endl;
-    });
-
-    client.SetErrorCallback([](const std::string& error) {
+    };
+    callbacks.handle_error_ = [](const std::string& error) {
         std::cerr << "[ERROR] " << error << std::endl;
-    });
-
-    client.SetConnectionCallback([](bool connected) {
+    };
+    callbacks.handle_connection_ = [](bool connected) {
         if (connected) {
             std::cout << "[CONN] Connected to Bitvavo WebSocket" << std::endl;
         } else {
             std::cout << "[CONN] Disconnected" << std::endl;
         }
-    });
+    };
+
+    connectors::BitvavoClient client(io_context, std::move(callbacks));
 
     // Run io_context on a background thread
     std::thread io_thread([&io_context]() {
@@ -63,7 +75,7 @@ int main() {
     // Subscribe to ticker for BTC-EUR and ETH-EUR
     auto sub_future = client.SubscribeTicker({"BTC-EUR", "ETH-EUR"});
     if (!sub_future.get()) {
-        std::cerr << "Failed to subscribe" << std::endl;
+        std::cerr << "Failed to subscribe to ticker" << std::endl;
         client.Disconnect();
         work_guard.reset();
         io_context.stop();
@@ -71,7 +83,18 @@ int main() {
         return 1;
     }
 
-    std::cout << "Subscribed. Streaming BBO updates (Ctrl+C to quit)..." << std::endl;
+    // Subscribe to trades for BTC-EUR and ETH-EUR
+    auto trades_future = client.SubscribeTrades({"BTC-EUR", "ETH-EUR"});
+    if (!trades_future.get()) {
+        std::cerr << "Failed to subscribe to trades" << std::endl;
+        client.Disconnect();
+        work_guard.reset();
+        io_context.stop();
+        io_thread.join();
+        return 1;
+    }
+
+    std::cout << "Subscribed to ticker and trades. Streaming updates (Ctrl+C to quit)..." << std::endl;
 
     // Wait for SIGINT
     while (g_running) {
