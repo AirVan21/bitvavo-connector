@@ -19,8 +19,12 @@ RUN apt-get update && apt-get install -y \
     pipx \
     libboost-all-dev \
     libssl-dev \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code
+RUN curl -fsSL https://claude.ai/install.sh | sh
 
 # Add pipx bin to PATH
 ENV PATH="/root/.local/bin:$PATH"

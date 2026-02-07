@@ -21,7 +21,7 @@ git submodule update --init --recursive
 
 ```bash
 docker build -t bitvavo-connector .
-docker run -it -v $(pwd):/bitvavo-connector bitvavo-connector
+docker run -it --name bitvavo-connector -v $(pwd):/bitvavo-connector bitvavo-connector
 # Inside container
 mkdir build && cd build
 conan install .. --build=missing
