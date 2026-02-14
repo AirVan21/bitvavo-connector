@@ -27,11 +27,11 @@ int main() {
         std::cout << std::fixed << std::setprecision(2) << "[BBO] " << bbo.market_;
 
         if (bbo.best_bid_ && bbo.best_bid_size_) {
-            std::cout << " bid=" << *bbo.best_bid_ << " (" << *bbo.best_bid_size_ << ")";
+            std::cout << " bid=" << *bbo.best_bid_size_ << "@" << *bbo.best_bid_;
         }
 
         if (bbo.best_ask_ && bbo.best_ask_size_) {
-            std::cout << " ask=" << *bbo.best_ask_ << " (" << *bbo.best_ask_size_ << ")";
+            std::cout << " ask=" << *bbo.best_ask_size_ << "@" << *bbo.best_ask_;
         }
 
         std::cout << std::endl;
@@ -40,8 +40,7 @@ int main() {
         std::cout << std::fixed << std::setprecision(2)
                   << "[TRADE] " << trade.market_
                   << " " << trade.side_
-                  << " " << trade.amount_ << " @ " << trade.price_
-                  << " (id=" << trade.id_ << ")"
+                  << " " << trade.amount_ << "@" << trade.price_
                   << std::endl;
     };
     callbacks.handle_error_ = [](const std::string& error) {
