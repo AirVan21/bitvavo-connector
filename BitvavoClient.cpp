@@ -47,8 +47,8 @@ void BitvavoClient::Disconnect() {
     worker_.reset();
     state_ = ClientState::Disconnected;
 
-    if (callbacks_.HandleConnection) {
-        callbacks_.HandleConnection(false);
+    if (callbacks_.handle_connection_) {
+        callbacks_.handle_connection_(false);
     }
 }
 
@@ -131,15 +131,15 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("Failed to parse JSON: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Failed to parse JSON: " + message);
         }
         return;
     }
 
     if (!doc.IsObject()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("JSON is not an object: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("JSON is not an object: " + message);
         }
         return;
     }
@@ -174,8 +174,8 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
 }
 
 void BitvavoClient::OnWsError(const std::string& error) {
-    if (callbacks_.HandleError) {
-        callbacks_.HandleError(error);
+    if (callbacks_.handle_error_) {
+        callbacks_.handle_error_(error);
     }
 }
 
@@ -187,8 +187,8 @@ void BitvavoClient::OnWsConnection(bool connected) {
         state_ = ClientState::Disconnected;
     }
 
-    if (callbacks_.HandleConnection) {
-        callbacks_.HandleConnection(connected);
+    if (callbacks_.handle_connection_) {
+        callbacks_.handle_connection_(connected);
     }
 }
 
@@ -197,46 +197,46 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError() || !doc.IsObject()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("Invalid ticker JSON: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Invalid ticker JSON: " + message);
         }
         return;
     }
 
     // Market field is required
     if (!doc.HasMember("market") || !doc["market"].IsString()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("Missing or invalid 'market' field in ticker: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Missing or invalid 'market' field in ticker: " + message);
         }
         return;
     }
 
     try {
         BBO bbo;
-        bbo.market = doc["market"].GetString();
+        bbo.market_ = doc["market"].GetString();
 
         // Parse optional bid fields
         if (doc.HasMember("bestBid") && doc["bestBid"].IsString()) {
-            bbo.bestBid = std::stod(doc["bestBid"].GetString());
+            bbo.best_bid_ = std::stod(doc["bestBid"].GetString());
         }
         if (doc.HasMember("bestBidSize") && doc["bestBidSize"].IsString()) {
-            bbo.bestBidSize = std::stod(doc["bestBidSize"].GetString());
+            bbo.best_bid_size_ = std::stod(doc["bestBidSize"].GetString());
         }
 
         // Parse optional ask fields
         if (doc.HasMember("bestAsk") && doc["bestAsk"].IsString()) {
-            bbo.bestAsk = std::stod(doc["bestAsk"].GetString());
+            bbo.best_ask_ = std::stod(doc["bestAsk"].GetString());
         }
         if (doc.HasMember("bestAskSize") && doc["bestAskSize"].IsString()) {
-            bbo.bestAskSize = std::stod(doc["bestAskSize"].GetString());
+            bbo.best_ask_size_ = std::stod(doc["bestAskSize"].GetString());
         }
 
-        if (callbacks_.HandleBBO) {
-            callbacks_.HandleBBO(bbo);
+        if (callbacks_.handle_bbo_) {
+            callbacks_.handle_bbo_(bbo);
         }
     } catch (const std::exception& e) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError(std::string("Failed to parse ticker values: ") + e.what());
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_(std::string("Failed to parse ticker values: ") + e.what());
         }
     }
 }
@@ -246,8 +246,8 @@ void BitvavoClient::HandleTradeEvent(const std::string& message) {
     doc.Parse(message.c_str());
 
     if (doc.HasParseError() || !doc.IsObject()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("Invalid trade JSON: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Invalid trade JSON: " + message);
         }
         return;
     }
@@ -256,8 +256,8 @@ void BitvavoClient::HandleTradeEvent(const std::string& message) {
     const char* required_string_fields[] = {"market", "id", "price", "amount", "side"};
     for (const auto* field : required_string_fields) {
         if (!doc.HasMember(field) || !doc[field].IsString()) {
-            if (callbacks_.HandleError) {
-                callbacks_.HandleError(std::string("Missing or invalid field '") + field + "' in trade: " + message);
+            if (callbacks_.handle_error_) {
+                callbacks_.handle_error_(std::string("Missing or invalid field '") + field + "' in trade: " + message);
             }
             return;
         }
@@ -265,27 +265,27 @@ void BitvavoClient::HandleTradeEvent(const std::string& message) {
 
     // Validate timestamp (should be a number)
     if (!doc.HasMember("timestamp") || !doc["timestamp"].IsInt64()) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError("Missing or invalid field 'timestamp' in trade: " + message);
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("Missing or invalid field 'timestamp' in trade: " + message);
         }
         return;
     }
 
     try {
         PublicTrade trade;
-        trade.market = doc["market"].GetString();
-        trade.id = doc["id"].GetString();
-        trade.price = std::stod(doc["price"].GetString());
-        trade.amount = std::stod(doc["amount"].GetString());
-        trade.side = doc["side"].GetString();
-        trade.timestamp = doc["timestamp"].GetInt64();
+        trade.market_ = doc["market"].GetString();
+        trade.id_ = doc["id"].GetString();
+        trade.price_ = std::stod(doc["price"].GetString());
+        trade.amount_ = std::stod(doc["amount"].GetString());
+        trade.side_ = doc["side"].GetString();
+        trade.timestamp_ = doc["timestamp"].GetInt64();
 
-        if (callbacks_.HandlePublicTrade) {
-            callbacks_.HandlePublicTrade(trade);
+        if (callbacks_.handle_public_trade_) {
+            callbacks_.handle_public_trade_(trade);
         }
     } catch (const std::exception& e) {
-        if (callbacks_.HandleError) {
-            callbacks_.HandleError(std::string("Failed to parse trade values: ") + e.what());
+        if (callbacks_.handle_error_) {
+            callbacks_.handle_error_(std::string("Failed to parse trade values: ") + e.what());
         }
     }
 }

@@ -12,32 +12,32 @@
 namespace connectors {
 
 struct BBO {
-    std::string market;
-    std::optional<double> bestBid;
-    std::optional<double> bestBidSize;
-    std::optional<double> bestAsk;
-    std::optional<double> bestAskSize;
+    std::string market_;
+    std::optional<double> best_bid_;
+    std::optional<double> best_bid_size_;
+    std::optional<double> best_ask_;
+    std::optional<double> best_ask_size_;
 };
 
 struct OrderBookEntry {
-    double price = 0.0;
-    double size = 0.0;
+    double price_ = 0.0;
+    double size_ = 0.0;
 };
 
 struct OrderBook {
-    std::string market;
-    int64_t nonce = 0;
-    std::vector<OrderBookEntry> bids;
-    std::vector<OrderBookEntry> asks;
+    std::string market_;
+    int64_t nonce_ = 0;
+    std::vector<OrderBookEntry> bids_;
+    std::vector<OrderBookEntry> asks_;
 };
 
 struct PublicTrade {
-    std::string market;
-    std::string id;
-    double price = 0.0;
-    double amount = 0.0;
-    std::string side;       // "buy" or "sell"
-    int64_t timestamp = 0;  // UTC milliseconds
+    std::string market_;
+    std::string id_;
+    double price_ = 0.0;
+    double amount_ = 0.0;
+    std::string side_;       // "buy" or "sell"
+    int64_t timestamp_ = 0;  // UTC milliseconds
 };
 
 enum class ClientState {
@@ -49,11 +49,11 @@ enum class ClientState {
 class BitvavoClient {
 public:
     struct Callbacks {
-        std::function<void(const BBO&)> HandleBBO;
-        std::function<void(const OrderBook&)> HandleOrderBook;
-        std::function<void(const PublicTrade&)> HandlePublicTrade;
-        std::function<void(const std::string&)> HandleError;
-        std::function<void(bool)> HandleConnection;
+        std::function<void(const BBO&)> handle_bbo_;
+        std::function<void(const OrderBook&)> handle_order_book_;
+        std::function<void(const PublicTrade&)> handle_public_trade_;
+        std::function<void(const std::string&)> handle_error_;
+        std::function<void(bool)> handle_connection_;
     };
 
     BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks);
