@@ -25,18 +25,21 @@ find_package(RapidJSON REQUIRED)
 # Add connector-network submodule
 add_subdirectory(Dependencies/connector-network)
 
-# Add the executable target
-add_executable(BitvavoConnector main.cpp BitvavoClient.cpp)
+# Library target (for use as submodule dependency)
+add_library(bitvavo_client STATIC BitvavoClient.cpp)
+target_include_directories(bitvavo_client PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${Boost_INCLUDE_DIRS}
+    ${OPENSSL_INCLUDE_DIR}
+    ${RapidJSON_INCLUDE_DIRS}
+)
+target_link_libraries(bitvavo_client PUBLIC
+    connector_network
+    ${Boost_LIBRARIES}
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
 
-# Include Boost and OpenSSL headers
-if(Boost_FOUND AND OpenSSL_FOUND)
-    target_include_directories(BitvavoConnector PRIVATE ${Boost_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR} ${RapidJSON_INCLUDE_DIRS})
-    target_link_libraries(BitvavoConnector PRIVATE
-        connector_network
-        ${Boost_LIBRARIES}
-        OpenSSL::SSL
-        OpenSSL::Crypto
-    )
-else()
-    message(FATAL_ERROR "Required libraries (Boost or OpenSSL) not found!")
-endif()
+# Executable target (links against the library)
+add_executable(BitvavoConnector main.cpp)
+target_link_libraries(BitvavoConnector PRIVATE bitvavo_client)
