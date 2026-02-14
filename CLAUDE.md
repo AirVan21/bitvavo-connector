@@ -38,6 +38,8 @@ The built executable is `build/BitvavoConnector`.
 ## Coding Style
 
 - **Member naming:** All struct and class fields use `snake_case_` with a trailing underscore (e.g., `best_bid_`, `market_`, `io_context_`).
+- **Prefer `struct` over `class`:** Use `struct` to avoid writing `public:` — public members go on top, `private:` section below.
+- **Logging notation:** Use `volume@price` format for market data (e.g., `1.50@45000.00`), not `price (volume)`.
 
 ## Architecture
 

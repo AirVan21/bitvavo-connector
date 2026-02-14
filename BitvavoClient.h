@@ -46,8 +46,7 @@ enum class ClientState {
     Connected
 };
 
-class BitvavoClient {
-public:
+struct BitvavoClient {
     struct Callbacks {
         std::function<void(const BBO&)> handle_bbo_;
         std::function<void(const OrderBook&)> handle_order_book_;
@@ -80,6 +79,12 @@ private:
 
     void HandleTickerEvent(const std::string& message);
     void HandleTradeEvent(const std::string& message);
+    std::future<bool> SendSubscription(const std::string& action,
+                                        const std::string& channel,
+                                        std::vector<std::string> markets,
+                                        bool& pending,
+                                        std::promise<bool>& promise);
+    void ResolveSubscription(bool& pending, std::promise<bool>& promise);
 
     static std::string BuildSubscribeJson(const std::string& action,
                                           const std::string& channel,
@@ -91,10 +96,10 @@ private:
 
     Callbacks callbacks_;
 
-    std::promise<bool> subscribe_promise_;
-    std::promise<bool> unsubscribe_promise_;
-    bool subscribe_pending_ = false;
-    bool unsubscribe_pending_ = false;
+    std::promise<bool> subscribe_bbo_promise_;
+    std::promise<bool> unsubscribe_bbo_promise_;
+    bool subscribe_bbo_pending_ = false;
+    bool unsubscribe_bbo_pending_ = false;
 
     std::promise<bool> subscribe_trades_promise_;
     std::promise<bool> unsubscribe_trades_promise_;

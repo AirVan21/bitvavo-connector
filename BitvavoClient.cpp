@@ -1,8 +1,5 @@
 #include "BitvavoClient.h"
 
-#include <iostream>
-#include <stdexcept>
-
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -52,78 +49,46 @@ void BitvavoClient::Disconnect() {
     }
 }
 
-std::future<bool> BitvavoClient::SubscribeTicker(std::vector<std::string> markets) {
+std::future<bool> BitvavoClient::SendSubscription(const std::string& action,
+                                                   const std::string& channel,
+                                                   std::vector<std::string> markets,
+                                                   bool& pending,
+                                                   std::promise<bool>& promise) {
     if (state_ != ClientState::Connected) {
         std::promise<bool> p;
         p.set_value(false);
         return p.get_future();
     }
 
-    auto json = BuildSubscribeJson("subscribe", "ticker", markets);
+    auto json = BuildSubscribeJson(action, channel, markets);
 
-    subscribe_promise_ = std::promise<bool>();
-    subscribe_pending_ = true;
-    auto future = subscribe_promise_.get_future();
+    promise = std::promise<bool>();
+    pending = true;
+    auto future = promise.get_future();
 
-    auto send_future = worker_->Send(json);
-    // We don't block on send_future here; the ack from the server resolves subscribe_promise_
+    worker_->Send(json);
 
     return future;
+}
+
+std::future<bool> BitvavoClient::SubscribeTicker(std::vector<std::string> markets) {
+    return SendSubscription("subscribe", "ticker", std::move(markets),
+                            subscribe_bbo_pending_, subscribe_bbo_promise_);
 }
 
 std::future<bool> BitvavoClient::UnsubscribeTicker(std::vector<std::string> markets) {
-    if (state_ != ClientState::Connected) {
-        std::promise<bool> p;
-        p.set_value(false);
-        return p.get_future();
-    }
-
-    auto json = BuildSubscribeJson("unsubscribe", "ticker", markets);
-
-    unsubscribe_promise_ = std::promise<bool>();
-    unsubscribe_pending_ = true;
-    auto future = unsubscribe_promise_.get_future();
-
-    worker_->Send(json);
-
-    return future;
+    return SendSubscription("unsubscribe", "ticker", std::move(markets),
+                            unsubscribe_bbo_pending_, unsubscribe_bbo_promise_);
 }
 
 std::future<bool> BitvavoClient::SubscribeTrades(std::vector<std::string> markets) {
-    if (state_ != ClientState::Connected) {
-        std::promise<bool> p;
-        p.set_value(false);
-        return p.get_future();
-    }
-
-    auto json = BuildSubscribeJson("subscribe", "trades", markets);
-
-    subscribe_trades_promise_ = std::promise<bool>();
-    subscribe_trades_pending_ = true;
-    auto future = subscribe_trades_promise_.get_future();
-
-    auto send_future = worker_->Send(json);
-    // We don't block on send_future here; the ack from the server resolves subscribe_trades_promise_
-
-    return future;
+    return SendSubscription("subscribe", "trades", std::move(markets),
+                            subscribe_trades_pending_, subscribe_trades_promise_);
 }
 
 std::future<bool> BitvavoClient::UnsubscribeTrades(std::vector<std::string> markets) {
-    if (state_ != ClientState::Connected) {
-        std::promise<bool> p;
-        p.set_value(false);
-        return p.get_future();
-    }
-
-    auto json = BuildSubscribeJson("unsubscribe", "trades", markets);
-
-    unsubscribe_trades_promise_ = std::promise<bool>();
-    unsubscribe_trades_pending_ = true;
-    auto future = unsubscribe_trades_promise_.get_future();
-
-    worker_->Send(json);
-
-    return future;
+    return SendSubscription("unsubscribe", "trades", std::move(markets),
+                            unsubscribe_trades_pending_, unsubscribe_trades_promise_);
 }
 
 void BitvavoClient::OnWsMessage(const std::string& message) {
@@ -152,24 +117,19 @@ void BitvavoClient::OnWsMessage(const std::string& message) {
         } else if (event == "trade") {
             HandleTradeEvent(message);
         } else if (event == "subscribed") {
-            if (subscribe_pending_) {
-                subscribe_pending_ = false;
-                subscribe_promise_.set_value(true);
-            }
-            if (subscribe_trades_pending_) {
-                subscribe_trades_pending_ = false;
-                subscribe_trades_promise_.set_value(true);
-            }
+            ResolveSubscription(subscribe_bbo_pending_, subscribe_bbo_promise_);
+            ResolveSubscription(subscribe_trades_pending_, subscribe_trades_promise_);
         } else if (event == "unsubscribed") {
-            if (unsubscribe_pending_) {
-                unsubscribe_pending_ = false;
-                unsubscribe_promise_.set_value(true);
-            }
-            if (unsubscribe_trades_pending_) {
-                unsubscribe_trades_pending_ = false;
-                unsubscribe_trades_promise_.set_value(true);
-            }
+            ResolveSubscription(unsubscribe_bbo_pending_, unsubscribe_bbo_promise_);
+            ResolveSubscription(unsubscribe_trades_pending_, unsubscribe_trades_promise_);
         }
+    }
+}
+
+void BitvavoClient::ResolveSubscription(bool& pending, std::promise<bool>& promise) {
+    if (pending) {
+        pending = false;
+        promise.set_value(true);
     }
 }
 
