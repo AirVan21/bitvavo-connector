@@ -101,6 +101,16 @@ cmake ..
 cmake --build .
 ```
 
+To push commits from inside the container, forward your SSH agent:
+
+```bash
+docker run -it \
+  -v $(pwd):/bitvavo-connector \
+  -v $SSH_AUTH_SOCK:/ssh-agent \
+  -e SSH_AUTH_SOCK=/ssh-agent \
+  bitvavo-connector
+```
+
 ### Local Build
 
 ```bash
