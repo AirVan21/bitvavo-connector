@@ -15,17 +15,17 @@ A C++20 WebSocket client for streaming real-time market data from the [Bitvavo](
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                   BitvavoClient                   │
-│                                                   │
+│                   BitvavoClient                  │
+│                                                  │
 │  Connect() ──► WssWorker (Boost.Beast + OpenSSL) │
-│                    │                              │
-│  SubscribeTicker() │  JSON subscribe/unsubscribe  │
-│  SubscribeTrades() │  via Bitvavo WS v2 API       │
-│                    ▼                              │
-│  Callbacks:   handle_bbo_          ◄── ticker     │
-│               handle_public_trade_ ◄── trades     │
-│               handle_error_        ◄── errors     │
-│               handle_connection_   ◄── connect    │
+│                    │                             │
+│  SubscribeTicker() │  JSON subscribe/unsubscribe │
+│  SubscribeTrades() │  via Bitvavo WS v2 API      │
+│                    ▼                             │
+│  Callbacks:   handle_bbo_          ◄── ticker    │
+│               handle_public_trade_ ◄── trades    │
+│               handle_error_        ◄── errors    │
+│               handle_connection_   ◄── connect   │
 └──────────────────────────────────────────────────┘
 ```
 
