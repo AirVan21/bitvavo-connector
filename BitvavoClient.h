@@ -2,43 +2,18 @@
 
 #include <functional>
 #include <future>
-#include <optional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <boost/asio.hpp>
 #include <WssWorker.h>
 
+#include "connectors/BBO.h"
+#include "connectors/InstrumentClient.h"
+#include "connectors/MarketDataConnector.h"
+
 namespace connectors {
-
-struct BBO {
-    std::string market_;
-    std::optional<double> best_bid_;
-    std::optional<double> best_bid_size_;
-    std::optional<double> best_ask_;
-    std::optional<double> best_ask_size_;
-};
-
-struct OrderBookEntry {
-    double price_ = 0.0;
-    double size_ = 0.0;
-};
-
-struct OrderBook {
-    std::string market_;
-    int64_t nonce_ = 0;
-    std::vector<OrderBookEntry> bids_;
-    std::vector<OrderBookEntry> asks_;
-};
-
-struct PublicTrade {
-    std::string market_;
-    std::string id_;
-    double price_ = 0.0;
-    double amount_ = 0.0;
-    std::string side_;       // "buy" or "sell"
-    int64_t timestamp_ = 0;  // UTC milliseconds
-};
 
 enum class ClientState {
     Disconnected,
@@ -46,7 +21,7 @@ enum class ClientState {
     Connected
 };
 
-struct BitvavoClient {
+struct BitvavoClient : MarketDataConnector {
     struct Callbacks {
         std::function<void(const BBO&)> handle_bbo_;
         std::function<void(const OrderBook&)> handle_order_book_;
@@ -55,24 +30,29 @@ struct BitvavoClient {
         std::function<void(bool)> handle_connection_;
     };
 
-    BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks);
+    BitvavoClient(boost::asio::io_context& io_context,
+                  InstrumentClient& instrument_client,
+                  Callbacks callbacks);
     ~BitvavoClient();
 
     BitvavoClient(const BitvavoClient&) = delete;
     BitvavoClient& operator=(const BitvavoClient&) = delete;
 
-    std::future<bool> Connect();
-    void Disconnect();
+    std::future<bool> Connect() override;
+    void Disconnect() override;
 
-    std::future<bool> SubscribeTicker(std::vector<std::string> markets);
-    std::future<bool> UnsubscribeTicker(std::vector<std::string> markets);
+    std::future<bool> SubscribeBBO(std::vector<int64_t> instrument_ids) override;
+    std::future<bool> SubscribeTrades(std::vector<int64_t> instrument_ids) override;
+    std::string Venue() const override { return "bitvavo"; }
 
-    std::future<bool> SubscribeTrades(std::vector<std::string> markets);
-    std::future<bool> UnsubscribeTrades(std::vector<std::string> markets);
+    std::future<bool> UnsubscribeBBO(std::vector<int64_t> instrument_ids);
+    std::future<bool> UnsubscribeTrades(std::vector<int64_t> instrument_ids);
 
     ClientState GetState() const { return state_; }
 
 private:
+    std::vector<std::string> ResolveVenueSymbols(const std::vector<int64_t>& instrument_ids);
+
     void OnWsMessage(const std::string& message);
     void OnWsError(const std::string& error);
     void OnWsConnection(bool connected);
@@ -91,6 +71,7 @@ private:
                                           const std::vector<std::string>& markets);
 
     boost::asio::io_context& io_context_;
+    InstrumentClient& instrument_client_;
     std::unique_ptr<WssWorker> worker_;
     ClientState state_ = ClientState::Disconnected;
 
