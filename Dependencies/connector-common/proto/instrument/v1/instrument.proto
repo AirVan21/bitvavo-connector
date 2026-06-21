@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package instrument.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service InstrumentService {
+  rpc GetInstrument(GetInstrumentRequest) returns (Instrument);
+  rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
+  rpc CreateInstrument(CreateInstrumentRequest) returns (Instrument);
+
+  rpc GetListing(GetListingRequest) returns (Listing);
+  rpc ListListings(ListListingsRequest) returns (ListListingsResponse);
+  rpc ResolveListing(ResolveListingRequest) returns (Listing);
+  rpc UpsertListing(UpsertListingRequest) returns (Listing);
+}
+
+message Instrument {
+  int64 instrument_id = 1;
+  string type = 2;
+  string base_asset = 3;
+  string quote_asset = 4;
+  string settlement_currency = 5;
+  google.protobuf.Timestamp expiry = 6;
+  string cfi_code = 7;
+  google.protobuf.Struct attributes = 8;
+  string display_name = 9;
+}
+
+message Listing {
+  int64 listing_id = 1;
+  int64 instrument_id = 2;
+  string venue = 3;
+  string venue_symbol = 4;
+  google.protobuf.Struct attributes = 5;
+  bool active = 6;
+}
+
+message GetInstrumentRequest {
+  int64 instrument_id = 1;
+}
+
+message ListInstrumentsRequest {
+  string type = 1;
+}
+
+message ListInstrumentsResponse {
+  repeated Instrument instruments = 1;
+}
+
+message CreateInstrumentRequest {
+  string type = 1;
+  string base_asset = 2;
+  string quote_asset = 3;
+  string settlement_currency = 4;
+  google.protobuf.Timestamp expiry = 5;
+  string cfi_code = 6;
+  google.protobuf.Struct attributes = 7;
+  string display_name = 8;
+}
+
+message GetListingRequest {
+  int64 listing_id = 1;
+}
+
+message ListListingsRequest {
+  int64 instrument_id = 1;
+  string venue = 2;
+  bool active_only = 3;
+}
+
+message ListListingsResponse {
+  repeated Listing listings = 1;
+}
+
+message ResolveListingRequest {
+  int64 instrument_id = 1;
+  string venue = 2;
+}
+
+message UpsertListingRequest {
+  int64 instrument_id = 1;
+  string venue = 2;
+  string venue_symbol = 3;
+  google.protobuf.Struct attributes = 4;
+  bool active = 5;
+}
