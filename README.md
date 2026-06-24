@@ -1,47 +1,45 @@
 # Bitvavo Connector
 
-A C++20 WebSocket client for streaming real-time market data from the [Bitvavo](https://bitvavo.com) cryptocurrency exchange. Built on Boost.Beast + OpenSSL with an async callback-based API.
+A C++20 WebSocket client for streaming real-time market data from the [Bitvavo](https://bitvavo.com) cryptocurrency exchange. Subscribes by canonical `instrument_id` resolved via [instrument-server](../instrument-server), and delivers events with `instrument_id_` set.
 
 ## Features
 
-- Real-time **BBO** (Best Bid/Offer) ticker subscriptions
-- Real-time **public trades** subscriptions
-- Async WebSocket connection via Boost.ASIO
-- SSL/TLS encryption
+- Real-time **BBO** (Best Bid/Offer) subscriptions by `instrument_id`
+- Real-time **public trades** subscriptions by `instrument_id`
+- Integration with **instrument-server** for listing resolution
+- Implements `MarketDataConnector` from **connector-common**
+- Async WebSocket via Boost.ASIO + SSL/TLS
 - Callback-based API with `std::future` for subscription lifecycle
-- Usable as a **standalone executable** or as a **static library** for embedding in other projects
 
-## Architecture
+## Platform architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                   BitvavoClient                  │
-│                                                  │
-│  Connect() ──► WssWorker (Boost.Beast + OpenSSL) │
-│                    │                             │
-│  SubscribeTicker() │  JSON subscribe/unsubscribe │
-│  SubscribeTrades() │  via Bitvavo WS v2 API      │
-│                    ▼                             │
-│  Callbacks:   handle_bbo_          ◄── ticker    │
-│               handle_public_trade_ ◄── trades    │
-│               handle_error_        ◄── errors    │
-│               handle_connection_   ◄── connect   │
-└──────────────────────────────────────────────────┘
+instrument-server (gRPC + PostgreSQL)
+        │
+        ▼ ResolveListing(instrument_id, "bitvavo")
+connector-common (InstrumentClient, BBO, PublicTrade)
+        │
+        ▼ SubscribeBBO([1, 2])
+BitvavoClient ──► WssWorker ──► Bitvavo WS API
+        │
+        ▼ BBO(instrument_id=1, ...)
+   your application
 ```
 
-### Data Flow
+| Repo | Role |
+|------|------|
+| [instrument-server](../instrument-server) | Canonical instrument and listing registry |
+| [connector-common](Dependencies/connector-common) | Shared types and gRPC client |
+| **bitvavo-connector** (this repo) | Bitvavo-specific WebSocket connector |
+| [connector-network](Dependencies/connector-network) | Low-level WSS transport |
 
-1. `BitvavoClient` connects to `wss://ws.bitvavo.com/v2/` via `WssWorker`
-2. Subscriptions send JSON payloads; server ACKs resolve `std::future<bool>`
-3. Incoming ticker events are parsed (RapidJSON) into `BBO` structs
-4. Incoming trade events are parsed into `PublicTrade` structs
-5. All callbacks execute on the `io_context` thread
+## Data structures
 
-### Data Structures
+Types are defined in `connector-common`:
 
 ```cpp
 struct BBO {
-    std::string market_;                  // e.g. "BTC-EUR"
+    int64_t instrument_id_ = 0;   // canonical ID from instrument-server
     std::optional<double> best_bid_;
     std::optional<double> best_bid_size_;
     std::optional<double> best_ask_;
@@ -49,69 +47,39 @@ struct BBO {
 };
 
 struct PublicTrade {
-    std::string market_;
-    std::string id_;
+    int64_t instrument_id_ = 0;
+    std::string trade_id_;
     double price_;
     double amount_;
-    std::string side_;        // "buy" or "sell"
-    int64_t timestamp_;       // UTC milliseconds
+    std::string side_;
+    int64_t timestamp_;
 };
 ```
 
 ## Cloning
 
-This project uses [connector-network](https://github.com/AirVan21/connector-network) as a submodule.
-
 ```bash
 git clone --recursive git@github.com:AirVan21/bitvavo-connector.git
-```
-
-Or if already cloned:
-
-```bash
 git submodule update --init --recursive
 ```
 
+Submodules: `connector-network`. `connector-common` is vendored under `Dependencies/`.
+
 ## Prerequisites
 
-- **CMake** 3.16+
-- **C++20** compiler (GCC 10+, Clang 12+)
-- **Conan 1.64.1** (not Conan 2.x) — `pip install conan==1.64.1`
-- **Boost** (ASIO + Beast) and **OpenSSL**
+- **CMake** 3.16+, **C++20** compiler
+- **Conan 1.64.1** for OpenSSL and RapidJSON
+- **Boost**, **OpenSSL**
+- **gRPC + Protobuf** (system packages for connector-common):
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install libboost-all-dev libssl-dev
-
-# macOS
-brew install boost openssl
+sudo apt-get install -y libboost-all-dev libssl-dev \
+    libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc
 ```
+
+- **instrument-server** running (see [instrument-server README](../instrument-server/README.md))
 
 ## Building
-
-### Using Docker
-
-```bash
-docker build -t bitvavo-connector .
-docker run -it --name bitvavo-connector -v $(pwd):/bitvavo-connector bitvavo-connector
-# Inside container
-mkdir build && cd build
-conan install .. --build=missing
-cmake ..
-cmake --build .
-```
-
-To push commits from inside the container, forward your SSH agent:
-
-```bash
-docker run -it \
-  -v $(pwd):/bitvavo-connector \
-  -v $SSH_AUTH_SOCK:/ssh-agent \
-  -e SSH_AUTH_SOCK=/ssh-agent \
-  bitvavo-connector
-```
-
-### Local Build
 
 ```bash
 mkdir -p build && cd build
@@ -120,83 +88,68 @@ cmake ..
 cmake --build .
 ```
 
-This produces:
-- `libbitvavo_client.a` — static library
-- `BitvavoConnector` — standalone executable
+Produces `libbitvavo_client.a` and `BitvavoConnector` executable.
 
 ## Running
 
+Start instrument-server first, then:
+
 ```bash
+export INSTRUMENT_SERVER_ADDRESS=localhost:50051   # default
 ./build/BitvavoConnector
 ```
 
-Connects to Bitvavo, subscribes to BTC-EUR and ETH-EUR ticker + trades, and streams updates to stdout:
+Example output:
 
 ```
+[INSTR] BTC-EUR -> bitvavo:BTC-EUR (listing_id=1)
+[INSTR] ETH-EUR -> bitvavo:ETH-EUR (listing_id=4)
 [CONN] Connected to Bitvavo WebSocket
-[BBO] BTC-EUR bid=1.50@45000.00 ask=0.80@45010.00
-[TRADE] BTC-EUR buy 0.25@45005.00
+[BBO] instrument_id=1 bid=0.44@55100.00 ask=0.51@55101.00
+[TRADE] instrument_id=1 sell 0.01@55100.00
 ```
 
-Press `Ctrl+C` to shut down gracefully.
+Press `Ctrl+C` to shut down.
 
-## Using as a Library
-
-The project exposes a `bitvavo_client` CMake static library target for use as a git submodule in other projects (e.g. [market-data-recorder](https://github.com/AirVan21/market-data-recorder)).
-
-### Integration
-
-```bash
-git submodule add https://github.com/AirVan21/bitvavo-connector.git Dependencies/bitvavo-connector
-```
-
-```cmake
-# CMakeLists.txt
-add_subdirectory(Dependencies/bitvavo-connector)
-
-add_executable(MyApp main.cpp)
-target_link_libraries(MyApp PRIVATE bitvavo_client)
-```
-
-The `bitvavo_client` target transitively provides all required include paths (Boost, OpenSSL, RapidJSON) and link libraries.
-
-### Callback API
+## Callback API
 
 ```cpp
 #include "BitvavoClient.h"
+#include "connectors/InstrumentClient.h"
 
 boost::asio::io_context io_context;
+connectors::InstrumentClient instrument_client("localhost:50051");
 
 connectors::BitvavoClient::Callbacks callbacks;
-callbacks.handle_bbo_ = [](const connectors::BBO& bbo) {
-    // Handle BBO update
-};
-callbacks.handle_public_trade_ = [](const connectors::PublicTrade& trade) {
-    // Handle trade
-};
-callbacks.handle_error_ = [](const std::string& error) {
-    // Handle error
-};
-callbacks.handle_connection_ = [](bool connected) {
-    // Handle connection state change
-};
+callbacks.handle_bbo_ = [](const connectors::BBO& bbo) { /* ... */ };
+callbacks.handle_public_trade_ = [](const connectors::PublicTrade& trade) { /* ... */ };
 
-connectors::BitvavoClient client(io_context, std::move(callbacks));
+connectors::BitvavoClient client(io_context, instrument_client, std::move(callbacks));
 
-// Run io_context on a background thread
 std::thread io_thread([&]() { io_context.run(); });
 
-// Connect and subscribe
 client.Connect().get();
-client.SubscribeTicker({"BTC-EUR", "ETH-EUR"}).get();
-client.SubscribeTrades({"BTC-EUR", "ETH-EUR"}).get();
+client.SubscribeBBO({1, 2}).get();      // BTC-EUR, ETH-EUR by instrument_id
+client.SubscribeTrades({1, 2}).get();
 ```
+
+## Adding a new exchange connector
+
+See the checklist in [connector-common README](Dependencies/connector-common/README.md):
+
+1. Create a new repo (e.g. `binance-connector`)
+2. Depend on `connector-common` + `connector-network`
+3. Implement `MarketDataConnector` with your `Venue()` name
+4. Register listings in instrument-server
+5. Resolve `instrument_id` → `venue_symbol` before subscribing
 
 ## Dependencies
 
-| Package | Version | Source | Purpose |
-|---|---|---|---|
-| Boost | system | apt/brew | ASIO + Beast (async I/O, WebSocket) |
-| OpenSSL | 1.1.1t | Conan | TLS for WebSocket connection |
-| RapidJSON | cci.20220822 | Conan | JSON parsing of Bitvavo API messages |
-| [connector-network](https://github.com/AirVan21/connector-network) | — | Git submodule | Low-level WebSocket client (WssWorker) |
+| Package | Source | Purpose |
+|---------|--------|---------|
+| Boost | apt/brew | ASIO + Beast |
+| OpenSSL | Conan | TLS |
+| RapidJSON | Conan | Bitvavo JSON parsing |
+| gRPC + Protobuf | apt | instrument-server client |
+| connector-common | `Dependencies/` | Shared types + InstrumentClient |
+| connector-network | submodule | WssWorker transport |

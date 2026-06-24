@@ -73,6 +73,8 @@ conan_trace.log
 conan_paths.cmake
 conanbuildinfo.cmake
 conaninfo.txt
+conan.lock
+graph_info.json
 
 # Docker
 .dockerignore

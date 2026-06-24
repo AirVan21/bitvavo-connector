@@ -6,9 +6,12 @@
 
 namespace connectors {
 
-BitvavoClient::BitvavoClient(boost::asio::io_context& io_context, Callbacks callbacks)
-    : io_context_(io_context), callbacks_(std::move(callbacks)) {
-}
+BitvavoClient::BitvavoClient(boost::asio::io_context& io_context,
+                             InstrumentClient& instrument_client,
+                             Callbacks callbacks)
+    : io_context_(io_context),
+      instrument_client_(instrument_client),
+      callbacks_(std::move(callbacks)) {}
 
 BitvavoClient::~BitvavoClient() {
     Disconnect();
@@ -16,9 +19,9 @@ BitvavoClient::~BitvavoClient() {
 
 std::future<bool> BitvavoClient::Connect() {
     if (state_ != ClientState::Disconnected) {
-        std::promise<bool> p;
-        p.set_value(false);
-        return p.get_future();
+        std::promise<bool> promise;
+        promise.set_value(false);
+        return promise.get_future();
     }
 
     state_ = ClientState::Connecting;
@@ -31,9 +34,7 @@ std::future<bool> BitvavoClient::Connect() {
     worker_ = std::make_unique<WssWorker>(io_context_, std::move(ws_callbacks));
 
     ConnectionSettings settings{"ws.bitvavo.com", "443", "/v2/"};
-    auto future = worker_->Connect(settings);
-
-    return future;
+    return worker_->Connect(settings);
 }
 
 void BitvavoClient::Disconnect() {
@@ -49,15 +50,79 @@ void BitvavoClient::Disconnect() {
     }
 }
 
+std::vector<std::string> BitvavoClient::ResolveVenueSymbols(
+    const std::vector<int64_t>& instrument_ids) {
+    std::vector<std::string> venue_symbols;
+    venue_symbols.reserve(instrument_ids.size());
+
+    for (const auto instrument_id : instrument_ids) {
+        auto listing = instrument_client_.ResolveListing(instrument_id, Venue());
+        if (!listing) {
+            if (callbacks_.handle_error_) {
+                callbacks_.handle_error_("No bitvavo listing for instrument_id=" +
+                                         std::to_string(instrument_id));
+            }
+            return {};
+        }
+        venue_symbols.push_back(listing->venue_symbol_);
+    }
+
+    return venue_symbols;
+}
+
+std::future<bool> BitvavoClient::SubscribeBBO(std::vector<int64_t> instrument_ids) {
+    auto venue_symbols = ResolveVenueSymbols(instrument_ids);
+    if (venue_symbols.empty()) {
+        std::promise<bool> promise;
+        promise.set_value(false);
+        return promise.get_future();
+    }
+    return SendSubscription("subscribe", "ticker", std::move(venue_symbols),
+                            subscribe_bbo_pending_, subscribe_bbo_promise_);
+}
+
+std::future<bool> BitvavoClient::UnsubscribeBBO(std::vector<int64_t> instrument_ids) {
+    auto venue_symbols = ResolveVenueSymbols(instrument_ids);
+    if (venue_symbols.empty()) {
+        std::promise<bool> promise;
+        promise.set_value(false);
+        return promise.get_future();
+    }
+    return SendSubscription("unsubscribe", "ticker", std::move(venue_symbols),
+                            unsubscribe_bbo_pending_, unsubscribe_bbo_promise_);
+}
+
+std::future<bool> BitvavoClient::SubscribeTrades(std::vector<int64_t> instrument_ids) {
+    auto venue_symbols = ResolveVenueSymbols(instrument_ids);
+    if (venue_symbols.empty()) {
+        std::promise<bool> promise;
+        promise.set_value(false);
+        return promise.get_future();
+    }
+    return SendSubscription("subscribe", "trades", std::move(venue_symbols),
+                            subscribe_trades_pending_, subscribe_trades_promise_);
+}
+
+std::future<bool> BitvavoClient::UnsubscribeTrades(std::vector<int64_t> instrument_ids) {
+    auto venue_symbols = ResolveVenueSymbols(instrument_ids);
+    if (venue_symbols.empty()) {
+        std::promise<bool> promise;
+        promise.set_value(false);
+        return promise.get_future();
+    }
+    return SendSubscription("unsubscribe", "trades", std::move(venue_symbols),
+                            unsubscribe_trades_pending_, unsubscribe_trades_promise_);
+}
+
 std::future<bool> BitvavoClient::SendSubscription(const std::string& action,
                                                    const std::string& channel,
                                                    std::vector<std::string> markets,
                                                    bool& pending,
                                                    std::promise<bool>& promise) {
     if (state_ != ClientState::Connected) {
-        std::promise<bool> p;
-        p.set_value(false);
-        return p.get_future();
+        std::promise<bool> result;
+        result.set_value(false);
+        return result.get_future();
     }
 
     auto json = BuildSubscribeJson(action, channel, markets);
@@ -69,26 +134,6 @@ std::future<bool> BitvavoClient::SendSubscription(const std::string& action,
     worker_->Send(json);
 
     return future;
-}
-
-std::future<bool> BitvavoClient::SubscribeTicker(std::vector<std::string> markets) {
-    return SendSubscription("subscribe", "ticker", std::move(markets),
-                            subscribe_bbo_pending_, subscribe_bbo_promise_);
-}
-
-std::future<bool> BitvavoClient::UnsubscribeTicker(std::vector<std::string> markets) {
-    return SendSubscription("unsubscribe", "ticker", std::move(markets),
-                            unsubscribe_bbo_pending_, unsubscribe_bbo_promise_);
-}
-
-std::future<bool> BitvavoClient::SubscribeTrades(std::vector<std::string> markets) {
-    return SendSubscription("subscribe", "trades", std::move(markets),
-                            subscribe_trades_pending_, subscribe_trades_promise_);
-}
-
-std::future<bool> BitvavoClient::UnsubscribeTrades(std::vector<std::string> markets) {
-    return SendSubscription("unsubscribe", "trades", std::move(markets),
-                            unsubscribe_trades_pending_, unsubscribe_trades_promise_);
 }
 
 void BitvavoClient::OnWsMessage(const std::string& message) {
@@ -163,7 +208,6 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
         return;
     }
 
-    // Market field is required
     if (!doc.HasMember("market") || !doc["market"].IsString()) {
         if (callbacks_.handle_error_) {
             callbacks_.handle_error_("Missing or invalid 'market' field in ticker: " + message);
@@ -173,17 +217,19 @@ void BitvavoClient::HandleTickerEvent(const std::string& message) {
 
     try {
         BBO bbo;
-        bbo.market_ = doc["market"].GetString();
+        const std::string market = doc["market"].GetString();
+        if (auto instrument_id = instrument_client_.ResolveInstrumentId(Venue(), market)) {
+            bbo.instrument_id_ = *instrument_id;
+        } else if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("No cached instrument_id for ticker market=" + market);
+        }
 
-        // Parse optional bid fields
         if (doc.HasMember("bestBid") && doc["bestBid"].IsString()) {
             bbo.best_bid_ = std::stod(doc["bestBid"].GetString());
         }
         if (doc.HasMember("bestBidSize") && doc["bestBidSize"].IsString()) {
             bbo.best_bid_size_ = std::stod(doc["bestBidSize"].GetString());
         }
-
-        // Parse optional ask fields
         if (doc.HasMember("bestAsk") && doc["bestAsk"].IsString()) {
             bbo.best_ask_ = std::stod(doc["bestAsk"].GetString());
         }
@@ -212,18 +258,17 @@ void BitvavoClient::HandleTradeEvent(const std::string& message) {
         return;
     }
 
-    // Validate required string fields
     const char* required_string_fields[] = {"market", "id", "price", "amount", "side"};
     for (const auto* field : required_string_fields) {
         if (!doc.HasMember(field) || !doc[field].IsString()) {
             if (callbacks_.handle_error_) {
-                callbacks_.handle_error_(std::string("Missing or invalid field '") + field + "' in trade: " + message);
+                callbacks_.handle_error_(std::string("Missing or invalid field '") + field +
+                                         "' in trade: " + message);
             }
             return;
         }
     }
 
-    // Validate timestamp (should be a number)
     if (!doc.HasMember("timestamp") || !doc["timestamp"].IsInt64()) {
         if (callbacks_.handle_error_) {
             callbacks_.handle_error_("Missing or invalid field 'timestamp' in trade: " + message);
@@ -233,8 +278,14 @@ void BitvavoClient::HandleTradeEvent(const std::string& message) {
 
     try {
         PublicTrade trade;
-        trade.market_ = doc["market"].GetString();
-        trade.id_ = doc["id"].GetString();
+        const std::string market = doc["market"].GetString();
+        if (auto instrument_id = instrument_client_.ResolveInstrumentId(Venue(), market)) {
+            trade.instrument_id_ = *instrument_id;
+        } else if (callbacks_.handle_error_) {
+            callbacks_.handle_error_("No cached instrument_id for trade market=" + market);
+        }
+
+        trade.trade_id_ = doc["id"].GetString();
         trade.price_ = std::stod(doc["price"].GetString());
         trade.amount_ = std::stod(doc["amount"].GetString());
         trade.side_ = doc["side"].GetString();
@@ -264,8 +315,8 @@ std::string BitvavoClient::BuildSubscribeJson(const std::string& action,
     chan.AddMember("name", rapidjson::Value(channel.c_str(), alloc), alloc);
 
     rapidjson::Value markets_array(rapidjson::kArrayType);
-    for (const auto& m : markets) {
-        markets_array.PushBack(rapidjson::Value(m.c_str(), alloc), alloc);
+    for (const auto& market : markets) {
+        markets_array.PushBack(rapidjson::Value(market.c_str(), alloc), alloc);
     }
     chan.AddMember("markets", markets_array, alloc);
     channels.PushBack(chan, alloc);
